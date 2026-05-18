@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +50,29 @@ class ApiTests(unittest.TestCase):
         self.assertIn("answer", body)
         self.assertEqual(body["role"], "employee")
         self.assertIn("sources", body)
+
+    def test_chat_endpoint_returns_clear_runtime_error(self) -> None:
+        class BrokenChain:
+            def answer_question(self, question: str, role: str, top_k: int):
+                raise RuntimeError("OpenAI response request failed: test error")
+
+        class BrokenService:
+            rag_chain = BrokenChain()
+
+        with patch("backend.main.get_rag_service", return_value=BrokenService()):
+            response = self.client.post(
+                "/chat",
+                json={
+                    "question": "What can employees read?",
+                    "role": "employee",
+                },
+            )
+
+        self.assertEqual(response.status_code, 502)
+        self.assertEqual(
+            response.json(),
+            {"detail": "OpenAI response request failed: test error"},
+        )
 
 
 if __name__ == "__main__":

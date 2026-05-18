@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.src.rag_service import RAGService, build_rag_service
@@ -42,7 +42,11 @@ def health() -> dict[str, str]:
 
 @app.get("/status", response_model=StatusResponse)
 def status() -> StatusResponse:
-    rag_service = get_rag_service()
+    try:
+        rag_service = get_rag_service()
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
     return StatusResponse(
         status="ready",
         document_count=rag_service.document_count,
@@ -53,12 +57,17 @@ def status() -> StatusResponse:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
-    rag_service = get_rag_service()
-    response = rag_service.rag_chain.answer_question(
-        question=request.question,
-        role=request.role,
-        top_k=3,
-    )
+    try:
+        rag_service = get_rag_service()
+        response = rag_service.rag_chain.answer_question(
+            question=request.question,
+            role=request.role,
+            top_k=3,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return ChatResponse(
         answer=response.answer,

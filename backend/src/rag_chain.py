@@ -82,6 +82,7 @@ class GroqLLM:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
+                "User-Agent": "secure-rag-enterprise-chatbot/0.1",
             },
             method="POST",
         )
