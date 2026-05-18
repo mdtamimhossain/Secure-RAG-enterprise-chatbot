@@ -1,10 +1,18 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Bot, Send, UserRound, Trash2 } from '@lucide/vue'
 import { sendChatMessage } from '../services/api'
 
 const props = defineProps({
   role: {
+    type: String,
+    required: true,
+  },
+  roleLabel: {
+    type: String,
+    required: true,
+  },
+  userName: {
     type: String,
     required: true,
   },
@@ -15,12 +23,7 @@ const emit = defineEmits(['sources-updated'])
 const question = ref('')
 const loading = ref(false)
 const error = ref('')
-const messages = ref([
-  {
-    sender: 'assistant',
-    text: 'Ask about policies, benefits, leave, handbooks, or department documents available to your role.',
-  },
-])
+const messages = ref([welcomeMessage()])
 
 const canSend = computed(() => question.value.trim().length > 0 && !loading.value)
 
@@ -53,15 +56,24 @@ async function submitQuestion() {
 }
 
 function clearChat() {
-  messages.value = [
-    {
-      sender: 'assistant',
-      text: 'Ask about policies, benefits, leave, handbooks, or department documents available to your role.',
-    },
-  ]
+  messages.value = [welcomeMessage()]
   emit('sources-updated', [])
   error.value = ''
 }
+
+function welcomeMessage() {
+  return {
+    sender: 'assistant',
+    text: `Hi ${props.userName}. I will answer using documents available to your ${props.roleLabel} role.`,
+  }
+}
+
+watch(
+  () => [props.role, props.userName],
+  () => {
+    clearChat()
+  },
+)
 </script>
 
 <template>
@@ -69,7 +81,7 @@ function clearChat() {
     <div class="chat-header">
       <div>
         <h2>Internal AI Assistant</h2>
-        <p>Role context: {{ role }}</p>
+        <p>{{ userName }} · {{ roleLabel }} context</p>
       </div>
       <button class="icon-button" type="button" title="Clear chat" @click="clearChat">
         <Trash2 :size="18" aria-hidden="true" />
