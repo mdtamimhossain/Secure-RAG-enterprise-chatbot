@@ -98,6 +98,79 @@ class GroqLLM:
         return response_data["choices"][0]["message"]["content"]
 
 
+class OpenAILLM:
+    """OpenAI Responses API client using OPENAI_API_KEY."""
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        model: str = "gpt-5.2",
+        api_url: str = "https://api.openai.com/v1/responses",
+        timeout_seconds: int = 30,
+    ) -> None:
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+        if not self.api_key:
+            raise ValueError("OPENAI_API_KEY is required to use OpenAILLM")
+
+        self.model = model
+        self.api_url = api_url
+        self.timeout_seconds = timeout_seconds
+
+    def generate(self, prompt: str) -> str:
+        payload = {
+            "model": self.model,
+            "instructions": (
+                "You are a secure internal company assistant. "
+                "Answer only from the provided context."
+            ),
+            "input": prompt,
+        }
+        request = Request(
+            self.api_url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                response_data = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            message = exc.read().decode("utf-8", errors="ignore")
+            raise RuntimeError(f"OpenAI response request failed: {exc.code} {message}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"OpenAI response request failed: {exc.reason}") from exc
+
+        if "output_text" in response_data:
+            return response_data["output_text"]
+
+        text_parts = []
+        for output_item in response_data.get("output", []):
+            for content_item in output_item.get("content", []):
+                if content_item.get("type") in {"output_text", "text"}:
+                    text_parts.append(content_item.get("text", ""))
+
+        return "\n".join(part for part in text_parts if part).strip()
+
+
+def create_llm_client(provider: str | None = None) -> LLMClient:
+    provider = (provider or os.getenv("LLM_PROVIDER", "fake")).lower()
+
+    if provider == "fake":
+        return FakeLLM(response="I found relevant company context for your question.")
+    if provider == "openai":
+        model = os.getenv("OPENAI_MODEL", "gpt-5.2")
+        return OpenAILLM(model=model)
+    if provider == "groq":
+        model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        return GroqLLM(model=model)
+
+    raise ValueError(f"Unsupported LLM provider: {provider}")
+
+
 def generate_llm_answer(prompt: str, llm_client: LLMClient) -> LLMResponse:
     """Generate an answer using the configured LLM client."""
 

@@ -6,8 +6,8 @@ from pathlib import Path
 
 from backend.src.chunking import chunk_documents
 from backend.src.document_loader import load_documents
-from backend.src.embeddings import EmbeddingModel, HashEmbeddingModel, embed_chunks
-from backend.src.rag_chain import FakeLLM, LLMClient, RAGChain
+from backend.src.embeddings import EmbeddingModel, create_embedding_model, embed_chunks
+from backend.src.rag_chain import LLMClient, RAGChain, create_llm_client
 from backend.src.retriever import Retriever
 from backend.src.vector_store import ChromaVectorStore
 
@@ -44,10 +44,8 @@ def build_rag_service(
     """Build the indexed RAG service used by the API."""
 
     settings = settings or default_rag_settings()
-    embedding_model = embedding_model or HashEmbeddingModel(dimensions=16)
-    llm_client = llm_client or FakeLLM(
-        response="I found relevant company context for your question."
-    )
+    embedding_model = embedding_model or create_embedding_model()
+    llm_client = llm_client or create_llm_client()
 
     documents = load_documents(settings.data_dir)
     chunks = chunk_documents(documents)

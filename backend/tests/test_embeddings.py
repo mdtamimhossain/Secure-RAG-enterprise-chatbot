@@ -10,7 +10,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.src.chunking import DocumentChunk
-from backend.src.embeddings import HashEmbeddingModel, embed_chunks
+from backend.src.embeddings import (
+    HashEmbeddingModel,
+    OpenAIEmbeddingModel,
+    create_embedding_model,
+    embed_chunks,
+)
 
 
 class EmbeddingsTests(unittest.TestCase):
@@ -42,6 +47,22 @@ class EmbeddingsTests(unittest.TestCase):
         embedded_chunks = embed_chunks([], model)
 
         self.assertEqual(embedded_chunks, [])
+
+    def test_create_embedding_model_uses_hash_provider(self) -> None:
+        model = create_embedding_model(provider="hash")
+
+        vectors = model.embed_texts(["hello"])
+
+        self.assertEqual(len(vectors), 1)
+        self.assertEqual(len(vectors[0]), 16)
+
+    def test_create_embedding_model_rejects_unknown_provider(self) -> None:
+        with self.assertRaises(ValueError):
+            create_embedding_model(provider="unknown")
+
+    def test_openai_embedding_model_requires_api_key(self) -> None:
+        with self.assertRaises(ValueError):
+            OpenAIEmbeddingModel(api_key="")
 
 
 if __name__ == "__main__":

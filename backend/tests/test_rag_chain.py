@@ -12,7 +12,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from backend.src.chunking import DocumentChunk
 from backend.src.embeddings import HashEmbeddingModel, embed_chunks
-from backend.src.rag_chain import FakeLLM, GroqLLM, RAGChain, generate_llm_answer
+from backend.src.rag_chain import (
+    FakeLLM,
+    GroqLLM,
+    OpenAILLM,
+    RAGChain,
+    create_llm_client,
+    generate_llm_answer,
+)
 from backend.src.retriever import Retriever
 from backend.src.vector_store import ChromaVectorStore
 
@@ -36,6 +43,15 @@ class RagChainTests(unittest.TestCase):
     def test_groq_llm_requires_api_key(self) -> None:
         with self.assertRaises(ValueError):
             GroqLLM(api_key="")
+
+    def test_openai_llm_requires_api_key(self) -> None:
+        with self.assertRaises(ValueError):
+            OpenAILLM(api_key="")
+
+    def test_create_llm_client_uses_fake_provider(self) -> None:
+        llm = create_llm_client(provider="fake")
+
+        self.assertIsInstance(llm, FakeLLM)
 
     def test_rag_chain_retrieves_context_and_calls_llm(self) -> None:
         model = HashEmbeddingModel(dimensions=8)
