@@ -58,6 +58,7 @@ async function submitQuestion() {
   if (!canSend.value) return
 
   const currentQuestion = question.value.trim()
+  const chatHistory = recentHistory()
   question.value = ''
   error.value = ''
   messages.value.push({ sender: 'user', text: currentQuestion, createdAt: timestamp() })
@@ -67,12 +68,14 @@ async function submitQuestion() {
     const response = await sendChatMessage({
       question: currentQuestion,
       role: props.role,
+      history: chatHistory,
     })
 
     messages.value.push({
       sender: 'assistant',
       text: response.answer,
       sources: response.sources || [],
+      guardrail: response.guardrail || null,
       createdAt: timestamp(),
     })
   } catch (err) {
@@ -89,6 +92,16 @@ function useSuggestion(text) {
 function clearChat() {
   messages.value = []
   error.value = ''
+}
+
+function recentHistory() {
+  return messages.value
+    .filter((message) => ['user', 'assistant'].includes(message.sender) && message.text?.trim())
+    .slice(-8)
+    .map((message) => ({
+      role: message.sender === 'assistant' ? 'assistant' : 'user',
+      content: message.text.trim(),
+    }))
 }
 
 function loadSavedMessages() {
@@ -185,12 +198,16 @@ async function scrollToBottom() {
         v-for="(message, index) in messages"
         :key="`${message.createdAt}-${index}`"
         class="message-row"
-        :class="message.sender"
+        :class="[message.sender, { safety: message.guardrail }]"
       >
         <div class="message-content">
           <div class="message-meta">
             <span>{{ message.sender === 'assistant' ? 'Codemars Assistant' : userName }}</span>
             <time>{{ message.createdAt }}</time>
+          </div>
+          <div v-if="message.guardrail" class="safety-label">
+            <ShieldCheck :size="15" aria-hidden="true" />
+            <span>Guardrail active - {{ message.guardrail.reason.replaceAll('_', ' ') }}</span>
           </div>
           <p>{{ message.text }}</p>
 
@@ -442,6 +459,24 @@ textarea {
   border-radius: 22px;
   background: var(--surface-soft, #f8fbff);
   padding: 14px 16px;
+}
+
+.message-row.safety .message-content {
+  border: 1px solid color-mix(in srgb, #f59e0b 38%, var(--border));
+  border-radius: 16px;
+  background: color-mix(in srgb, #f59e0b 9%, var(--surface));
+  padding: 14px 16px;
+}
+
+.safety-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  color: #b45309;
+  font-size: 12px;
+  font-weight: 820;
+  text-transform: capitalize;
 }
 
 .message-meta {

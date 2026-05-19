@@ -28,6 +28,12 @@ class RAGResponse:
     model: str
 
 
+@dataclass(frozen=True)
+class ChatHistoryMessage:
+    role: str
+    content: str
+
+
 class FakeLLM:
     """Simple local LLM stand-in for tests and early backend wiring."""
 
@@ -194,6 +200,7 @@ class RAGChain:
         question: str,
         role: str,
         top_k: int = 3,
+        chat_history: list[ChatHistoryMessage] | None = None,
     ) -> RAGResponse:
         if not question.strip():
             return RAGResponse(
@@ -202,8 +209,14 @@ class RAGChain:
                 model=self.llm_client.__class__.__name__,
             )
 
-        sources = self.retriever.retrieve(question, role=role, top_k=top_k)
-        prompt = build_rag_prompt(question=question, sources=sources)
+        clean_history = normalize_chat_history(chat_history or [])
+        retrieval_query = build_retrieval_query(question, clean_history)
+        sources = self.retriever.retrieve(retrieval_query, role=role, top_k=top_k)
+        prompt = build_rag_prompt(
+            question=question,
+            sources=sources,
+            chat_history=clean_history,
+        )
         llm_response = generate_llm_answer(prompt, self.llm_client)
         answer, should_show_sources = parse_source_usage(llm_response.answer)
 
@@ -231,7 +244,54 @@ def parse_source_usage(answer: str) -> tuple[str, bool]:
     return answer.strip(), True
 
 
-def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:
+def normalize_chat_history(
+    chat_history: list[ChatHistoryMessage | dict[str, str]],
+    max_messages: int = 8,
+    max_chars_per_message: int = 700,
+) -> list[ChatHistoryMessage]:
+    normalized: list[ChatHistoryMessage] = []
+    for message in chat_history[-max_messages:]:
+        role = message.role if isinstance(message, ChatHistoryMessage) else message.get("role", "")
+        content = message.content if isinstance(message, ChatHistoryMessage) else message.get("content", "")
+        clean_role = role.strip().lower()
+        clean_content = " ".join(content.strip().split())
+        if clean_role not in {"user", "assistant"} or not clean_content:
+            continue
+        normalized.append(
+            ChatHistoryMessage(
+                role=clean_role,
+                content=clean_content[:max_chars_per_message],
+            )
+        )
+    return normalized
+
+
+def build_retrieval_query(question: str, chat_history: list[ChatHistoryMessage]) -> str:
+    recent_user_messages = [
+        message.content
+        for message in chat_history
+        if message.role == "user"
+    ][-2:]
+    query_parts = recent_user_messages + [question.strip()]
+    return "\n".join(part for part in query_parts if part).strip()
+
+
+def format_chat_history(chat_history: list[ChatHistoryMessage]) -> str:
+    if not chat_history:
+        return "No previous conversation."
+
+    lines = []
+    for message in chat_history:
+        speaker = "User" if message.role == "user" else "Assistant"
+        lines.append(f"{speaker}: {message.content}")
+    return "\n".join(lines)
+
+
+def build_rag_prompt(
+    question: str,
+    sources: list[dict[str, Any]],
+    chat_history: list[ChatHistoryMessage] | None = None,
+) -> str:
     context_blocks = []
     for index, source in enumerate(sources, start=1):
         metadata = source.get("metadata", {})
@@ -243,6 +303,7 @@ def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:
         )
 
     context = "\n\n".join(context_blocks) if context_blocks else "No retrieved context."
+    conversation = format_chat_history(chat_history or [])
     return (
         "You are Codemars Intranet Assistant.\n\n"
         "Response rules:\n"
@@ -253,8 +314,10 @@ def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:
         "3. If the user asks about company/internal information but the retrieved "
         "context is empty, irrelevant, or does not contain the answer, say: "
         "\"I could not find specific information about that in your available company documents.\"\n"
-        "4. Do not invent company policies, benefits, finance data, or employee information.\n"
-        "5. The context was already filtered by backend RBAC. Never suggest that the "
+        "4. Use the previous conversation only to understand follow-up wording like "
+        "\"yes\", \"explain more\", \"what about that\", or \"I don't understand\".\n"
+        "5. Do not invent company policies, benefits, finance data, or employee information.\n"
+        "6. The context was already filtered by backend RBAC. Never suggest that the "
         "user can access documents outside this context.\n\n"
         "Source display rule:\n"
         "Start your answer with exactly one hidden routing line:\n"
@@ -263,6 +326,7 @@ def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:
         "- SOURCE_USAGE: none    -> when the user asks a company question but the "
         "context does not contain the answer\n"
         "After that first line, write the user-facing answer.\n\n"
+        f"Previous conversation:\n{conversation}\n\n"
         f"Retrieved context:\n{context}\n\n"
         f"User message:\n{question}\n\n"
         "Answer:"

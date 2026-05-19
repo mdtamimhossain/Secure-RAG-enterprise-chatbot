@@ -5,7 +5,9 @@ from functools import lru_cache
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.src.guardrails import check_guardrails
+from backend.src.guardrails import GuardrailResult, check_input_guardrails, check_output_guardrails
+from backend.src.monitoring import log_guardrail_event
+from backend.src.rag_chain import ChatHistoryMessage
 from backend.src.rag_service import RAGService, build_rag_service, get_index_status
 
 
@@ -15,6 +17,7 @@ app = FastAPI(title="Secure Enterprise RAG Chatbot API")
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
     role: str = "employee"
+    history: list[ChatHistoryMessage] = Field(default_factory=list)
 
 
 class SourceResponse(BaseModel):
@@ -27,6 +30,7 @@ class ChatResponse(BaseModel):
     role: str
     model: str
     sources: list[SourceResponse]
+    guardrail: dict[str, str] | None = None
 
 
 class StatusResponse(BaseModel):
@@ -59,21 +63,20 @@ def status() -> StatusResponse:
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     try:
-        guardrail_result = check_guardrails(request.question)
+        guardrail_result = check_input_guardrails(request.question)
         if not guardrail_result.allowed:
-            return ChatResponse(
-                answer=guardrail_result.message,
-                role=request.role,
-                model=f"Guardrails:{guardrail_result.reason}",
-                sources=[],
-            )
+            return _guardrail_response(request, guardrail_result)
 
         rag_service = get_rag_service()
         response = rag_service.rag_chain.answer_question(
             question=request.question,
             role=request.role,
             top_k=3,
+            chat_history=request.history,
         )
+        output_guardrail_result = check_output_guardrails(response.answer)
+        if not output_guardrail_result.allowed:
+            return _guardrail_response(request, output_guardrail_result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -90,6 +93,29 @@ def chat(request: ChatRequest) -> ChatResponse:
             )
             for source in response.sources
         ],
+    )
+
+
+def _guardrail_response(request: ChatRequest, result: GuardrailResult) -> ChatResponse:
+    log_guardrail_event(
+        question=request.question,
+        role=request.role,
+        reason=result.reason,
+        stage=result.stage,
+        intent=result.intent.value,
+        message=result.message,
+    )
+
+    return ChatResponse(
+        answer=result.message,
+        role=request.role,
+        model=f"Guardrails:{result.reason}",
+        sources=[],
+        guardrail={
+            "reason": result.reason,
+            "stage": result.stage,
+            "intent": result.intent.value,
+        },
     )
 
 

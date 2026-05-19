@@ -13,11 +13,13 @@ if str(PROJECT_ROOT) not in sys.path:
 from backend.src.chunking import DocumentChunk
 from backend.src.embeddings import HashEmbeddingModel, embed_chunks
 from backend.src.rag_chain import (
+    ChatHistoryMessage,
     FakeLLM,
     GroqLLM,
     OpenAILLM,
     RAGChain,
     build_rag_prompt,
+    build_retrieval_query,
     create_llm_client,
     generate_llm_answer,
     parse_source_usage,
@@ -28,6 +30,15 @@ from backend.src.vector_store import ChromaVectorStore
 
 class EmptyRetriever:
     def retrieve(self, question: str, role: str, top_k: int):
+        return []
+
+
+class RecordingRetriever:
+    def __init__(self) -> None:
+        self.last_question = ""
+
+    def retrieve(self, question: str, role: str, top_k: int):
+        self.last_question = question
         return []
 
 
@@ -75,6 +86,33 @@ class RagChainTests(unittest.TestCase):
         self.assertIn("SOURCE_USAGE: context", prompt)
         self.assertIn("I could not find specific information", prompt)
 
+    def test_prompt_includes_previous_conversation_for_followups(self) -> None:
+        prompt = build_rag_prompt(
+            "yes",
+            sources=[],
+            chat_history=[
+                ChatHistoryMessage(role="user", content="Can you explain remote work?"),
+                ChatHistoryMessage(role="assistant", content="Do you want a shorter version?"),
+            ],
+        )
+
+        self.assertIn("Previous conversation:", prompt)
+        self.assertIn("User: Can you explain remote work?", prompt)
+        self.assertIn("Assistant: Do you want a shorter version?", prompt)
+        self.assertIn("User message:\nyes", prompt)
+
+    def test_retrieval_query_uses_recent_user_context(self) -> None:
+        query = build_retrieval_query(
+            "yes",
+            [
+                ChatHistoryMessage(role="user", content="What is the remote work policy?"),
+                ChatHistoryMessage(role="assistant", content="Do you want more detail?"),
+            ],
+        )
+
+        self.assertIn("What is the remote work policy?", query)
+        self.assertIn("yes", query)
+
     def test_parse_source_usage_hides_sources_for_casual_answer(self) -> None:
         answer, show_sources = parse_source_usage("SOURCE_USAGE: casual\nHello there.")
 
@@ -98,6 +136,24 @@ class RagChainTests(unittest.TestCase):
         self.assertEqual(response.model, "FakeLLM")
         self.assertIn("User message:\nhello", llm.last_prompt)
         self.assertIn("No retrieved context.", llm.last_prompt)
+
+    def test_rag_chain_passes_history_to_prompt_and_retrieval(self) -> None:
+        retriever = RecordingRetriever()
+        llm = FakeLLM(response="SOURCE_USAGE: casual\nSure, I can explain that more simply.")
+        rag_chain = RAGChain(retriever, llm)
+
+        response = rag_chain.answer_question(
+            "yes",
+            role="employee",
+            chat_history=[
+                ChatHistoryMessage(role="user", content="Can you explain the helpdesk policy?"),
+                ChatHistoryMessage(role="assistant", content="Do you want a simple summary?"),
+            ],
+        )
+
+        self.assertEqual(response.answer, "Sure, I can explain that more simply.")
+        self.assertIn("Can you explain the helpdesk policy?", retriever.last_question)
+        self.assertIn("Previous conversation:", llm.last_prompt)
 
     def test_rag_chain_retrieves_context_and_calls_llm(self) -> None:
         model = HashEmbeddingModel(dimensions=8)
