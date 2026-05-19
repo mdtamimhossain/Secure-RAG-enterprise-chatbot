@@ -1,6 +1,6 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
-import { Bot, Send, UserRound, Trash2 } from '@lucide/vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { FileText, Plus, Search, Send, ShieldCheck } from '@lucide/vue'
 import { sendChatMessage } from '../services/api'
 
 const props = defineProps({
@@ -18,14 +18,41 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['sources-updated'])
-
 const question = ref('')
 const loading = ref(false)
 const error = ref('')
-const messages = ref([welcomeMessage()])
+const messageList = ref(null)
+const messages = ref([])
+
+const storageKey = computed(
+  () => `secure-rag-chat:${props.userName.trim().toLowerCase()}:${props.role}`,
+)
 
 const canSend = computed(() => question.value.trim().length > 0 && !loading.value)
+const hasConversation = computed(() => messages.value.length > 0)
+
+onMounted(() => {
+  loadSavedMessages()
+  scrollToBottom()
+})
+
+watch(
+  () => storageKey.value,
+  () => {
+    loadSavedMessages()
+    error.value = ''
+    scrollToBottom()
+  },
+)
+
+watch(
+  messages,
+  () => {
+    saveMessages()
+    scrollToBottom()
+  },
+  { deep: true },
+)
 
 async function submitQuestion() {
   if (!canSend.value) return
@@ -33,7 +60,7 @@ async function submitQuestion() {
   const currentQuestion = question.value.trim()
   question.value = ''
   error.value = ''
-  messages.value.push({ sender: 'user', text: currentQuestion })
+  messages.value.push({ sender: 'user', text: currentQuestion, createdAt: timestamp() })
   loading.value = true
 
   try {
@@ -45,240 +72,482 @@ async function submitQuestion() {
     messages.value.push({
       sender: 'assistant',
       text: response.answer,
+      sources: response.sources || [],
+      createdAt: timestamp(),
     })
-    emit('sources-updated', response.sources || [])
   } catch (err) {
     error.value = err.message
-    emit('sources-updated', [])
   } finally {
     loading.value = false
   }
 }
 
+function useSuggestion(text) {
+  question.value = text
+}
+
 function clearChat() {
-  messages.value = [welcomeMessage()]
-  emit('sources-updated', [])
+  messages.value = []
   error.value = ''
 }
 
-function welcomeMessage() {
-  return {
-    sender: 'assistant',
-    text: `Hi ${props.userName}. I will answer using documents available to your ${props.roleLabel} role.`,
+function loadSavedMessages() {
+  const saved = window.localStorage.getItem(storageKey.value)
+  if (!saved) {
+    messages.value = []
+    return
+  }
+
+  try {
+    const parsed = JSON.parse(saved)
+    messages.value = Array.isArray(parsed) ? normalizeSavedMessages(parsed) : []
+  } catch {
+    messages.value = []
   }
 }
 
-watch(
-  () => [props.role, props.userName],
-  () => {
-    clearChat()
-  },
-)
+function normalizeSavedMessages(savedMessages) {
+  if (
+    savedMessages.length === 1 &&
+    savedMessages[0]?.sender === 'assistant' &&
+    savedMessages[0]?.text?.includes('retrieve authorized context')
+  ) {
+    return []
+  }
+
+  return savedMessages
+}
+
+function saveMessages() {
+  window.localStorage.setItem(storageKey.value, JSON.stringify(messages.value))
+}
+
+function labelFor(source) {
+  const metadata = source.metadata || {}
+  return metadata.filename || metadata.source || 'Company document'
+}
+
+function timestamp() {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+async function scrollToBottom() {
+  await nextTick()
+  if (messageList.value) {
+    messageList.value.scrollTop = messageList.value.scrollHeight
+  }
+}
 </script>
 
 <template>
-  <section class="chat-panel" aria-label="AI assistant chat">
-    <div class="chat-header">
-      <div>
-        <h2>Internal AI Assistant</h2>
-        <p>{{ userName }} · {{ roleLabel }} context</p>
-      </div>
-      <button class="icon-button" type="button" title="Clear chat" @click="clearChat">
-        <Trash2 :size="18" aria-hidden="true" />
-      </button>
-    </div>
+  <section class="assistant-screen" aria-label="AI assistant">
+    <button v-if="hasConversation" class="clear-chat" type="button" @click="clearChat">
+      New chat
+    </button>
 
-    <div class="message-list" aria-live="polite">
+    <div ref="messageList" class="conversation" :class="{ empty: !hasConversation }" aria-live="polite">
+      <div v-if="!hasConversation" class="assistant-home">
+        <h2>What can I help you with?</h2>
+
+        <form class="prompt-shell" @submit.prevent="submitQuestion">
+          <button class="prompt-icon" type="button" title="Add context">
+            <Plus :size="24" aria-hidden="true" />
+          </button>
+          <textarea
+            v-model="question"
+            rows="1"
+            placeholder="Ask about company policies, benefits, reports, or handbooks"
+            @keydown.enter.exact.prevent="submitQuestion"
+          />
+          <span class="mode-pill">Internal RAG</span>
+          <button class="send-button" type="submit" :disabled="!canSend" title="Send question">
+            <Send :size="18" aria-hidden="true" />
+          </button>
+        </form>
+
+        <div class="suggestion-row">
+          <button type="button" @click="useSuggestion('What is the leave policy?')">
+            <FileText :size="18" aria-hidden="true" />
+            <span>Leave policy</span>
+          </button>
+          <button type="button" @click="useSuggestion('What benefits can employees use?')">
+            <ShieldCheck :size="18" aria-hidden="true" />
+            <span>Benefits</span>
+          </button>
+          <button type="button" @click="useSuggestion('Search my accessible finance documents')">
+            <Search :size="18" aria-hidden="true" />
+            <span>Search documents</span>
+          </button>
+        </div>
+      </div>
+
       <article
         v-for="(message, index) in messages"
-        :key="index"
-        class="message"
+        :key="`${message.createdAt}-${index}`"
+        class="message-row"
         :class="message.sender"
       >
-        <div class="avatar" aria-hidden="true">
-          <Bot v-if="message.sender === 'assistant'" :size="17" />
-          <UserRound v-else :size="17" />
+        <div class="message-content">
+          <div class="message-meta">
+            <span>{{ message.sender === 'assistant' ? 'Codemars Assistant' : userName }}</span>
+            <time>{{ message.createdAt }}</time>
+          </div>
+          <p>{{ message.text }}</p>
+
+          <ol v-if="message.sender === 'assistant' && message.sources?.length" class="inline-references">
+            <li v-for="(source, sourceIndex) in message.sources" :key="`${labelFor(source)}-${sourceIndex}`">
+              <span>{{ sourceIndex + 1 }}</span>
+              <div>
+                <strong>{{ labelFor(source) }}</strong>
+                <small>
+                  {{ source.metadata?.department || 'general' }} /
+                  {{ source.metadata?.category || 'general' }}
+                </small>
+              </div>
+            </li>
+          </ol>
         </div>
-        <p>{{ message.text }}</p>
       </article>
-      <article v-if="loading" class="message assistant">
-        <div class="avatar" aria-hidden="true">
-          <Bot :size="17" />
+
+      <article v-if="loading" class="message-row assistant">
+        <div class="message-content">
+          <div class="message-meta">
+            <span>Codemars Assistant</span>
+            <time>Retrieving</time>
+          </div>
+          <div class="thinking-line">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
         </div>
-        <p>Searching authorized documents...</p>
       </article>
     </div>
 
     <p v-if="error" class="error-message">{{ error }}</p>
 
-    <form class="composer" @submit.prevent="submitQuestion">
+    <form v-if="hasConversation" class="prompt-shell sticky" @submit.prevent="submitQuestion">
+      <button class="prompt-icon" type="button" title="Add context">
+        <Plus :size="22" aria-hidden="true" />
+      </button>
       <textarea
         v-model="question"
-        rows="3"
-        placeholder="Ask a question about company policies or department documents"
+        rows="1"
+        placeholder="Ask a follow-up"
+        @keydown.enter.exact.prevent="submitQuestion"
       />
-      <button type="submit" :disabled="!canSend" title="Send question">
+      <span class="mode-pill">{{ roleLabel }}</span>
+      <button class="send-button" type="submit" :disabled="!canSend" title="Send question">
         <Send :size="18" aria-hidden="true" />
-        <span>Send</span>
       </button>
     </form>
   </section>
 </template>
 
 <style scoped>
-.chat-panel {
+.assistant-screen {
+  position: relative;
   display: grid;
-  min-height: 620px;
-  grid-template-rows: auto 1fr auto auto;
+  min-height: calc(100vh - 132px);
+  grid-template-rows: 1fr auto auto;
+  color: var(--text, #172033);
 }
 
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid #e5eaf0;
-}
-
-h2,
-p {
-  margin: 0;
-}
-
-h2 {
-  color: #172033;
-  font-size: 17px;
-}
-
-.chat-header p {
-  margin-top: 3px;
-  color: #64748b;
+.clear-chat {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  border: 1px solid var(--border, #d8dee7);
+  border-radius: 999px;
+  background: var(--surface, #ffffff);
+  color: var(--muted, #64748b);
+  padding: 7px 11px;
+  cursor: pointer;
   font-size: 13px;
-  text-transform: capitalize;
+  font-weight: 760;
 }
 
-.icon-button {
-  display: inline-grid;
-  width: 38px;
-  height: 38px;
+.conversation {
+  overflow-y: auto;
+  padding: 10px 8px 26px;
+  scroll-behavior: smooth;
+}
+
+.conversation.empty {
+  display: grid;
   place-items: center;
-  border: 1px solid #d8dee7;
-  background: #ffffff;
-  color: #475569;
-  border-radius: 6px;
+  overflow: visible;
+  padding-bottom: 120px;
+}
+
+.assistant-home {
+  display: grid;
+  width: min(960px, 100%);
+  gap: 26px;
+  justify-items: center;
+  animation: riseIn 220ms ease both;
+}
+
+.assistant-home h2 {
+  margin: 0;
+  color: var(--heading, #111827);
+  font-size: clamp(30px, 4vw, 40px);
+  font-weight: 520;
+  letter-spacing: 0;
+}
+
+.prompt-shell {
+  display: grid;
+  width: min(960px, 100%);
+  grid-template-columns: 42px minmax(0, 1fr) auto 50px;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--border, #d8dee7);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--surface-soft));
+  padding: 10px 12px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.1);
+}
+
+.prompt-shell.sticky {
+  justify-self: center;
+}
+
+.prompt-icon,
+.send-button {
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
   cursor: pointer;
 }
 
-.message-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow-y: auto;
-  padding: 18px 2px;
-}
-
-.message {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-}
-
-.message.user {
-  grid-template-columns: minmax(0, 1fr) 34px;
-}
-
-.message.user .avatar {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-.message.user p {
-  grid-column: 1;
-  justify-self: end;
-  background: #eaf2ff;
-}
-
-.avatar {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border: 1px solid #d8dee7;
-  border-radius: 50%;
-  background: #ffffff;
-  color: #1f6feb;
-}
-
-.message p {
-  max-width: 760px;
-  padding: 11px 13px;
-  border: 1px solid #e2e8f0;
-  background: #ffffff;
-  border-radius: 6px;
-  color: #243044;
-  font-size: 14px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-
-.error-message {
-  margin-bottom: 10px;
-  padding: 10px 12px;
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #991b1b;
-  border-radius: 6px;
-  font-size: 13px;
-}
-
-.composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 96px;
-  gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid #e5eaf0;
+.prompt-icon {
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  color: var(--text, #172033);
 }
 
 textarea {
   width: 100%;
-  min-height: 76px;
-  resize: vertical;
-  border: 1px solid #cbd5e1;
-  border-radius: 6px;
-  padding: 11px 12px;
-  color: #172033;
+  min-height: 34px;
+  max-height: 130px;
+  resize: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text, #172033);
   font: inherit;
+  font-size: 16px;
+  line-height: 1.5;
 }
 
-button[type='submit'] {
+.mode-pill {
+  color: var(--muted, #64748b);
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.send-button {
+  width: 42px;
+  height: 42px;
+  background: var(--heading, #111827);
+  color: var(--surface, #ffffff);
+}
+
+.send-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.suggestion-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+}
+
+.suggestion-row button {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 44px;
-  align-self: end;
-  border: 0;
-  background: #1f6feb;
-  color: #ffffff;
-  border-radius: 6px;
-  font-weight: 700;
+  gap: 9px;
+  min-height: 48px;
+  border: 1px solid var(--border, #d8dee7);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  color: var(--text, #172033);
+  padding: 0 18px;
   cursor: pointer;
+  font-weight: 720;
 }
 
-button[disabled] {
-  cursor: not-allowed;
-  opacity: 0.55;
+.message-row {
+  width: min(850px, 100%);
+  margin: 0 auto 20px;
+  animation: riseIn 180ms ease both;
 }
 
-@media (max-width: 700px) {
-  .chat-panel {
-    min-height: 560px;
+.message-row.user {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.message-content {
+  width: 100%;
+  border-bottom: 1px solid var(--border, #d8dee7);
+  padding: 0 0 18px;
+}
+
+.message-row.user .message-content {
+  width: min(680px, 92%);
+  border: 1px solid var(--border, #d8dee7);
+  border-radius: 22px;
+  background: var(--surface-soft, #f8fbff);
+  padding: 14px 16px;
+}
+
+.message-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 8px;
+  color: var(--muted, #64748b);
+  font-size: 12px;
+  font-weight: 780;
+}
+
+.message-content p {
+  margin: 0;
+  color: var(--text, #172033);
+  font-size: 15px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.inline-references {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inline-references li {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+  border: 1px solid var(--border, #d8dee7);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
+  padding: 10px;
+}
+
+.inline-references li > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--heading, #111827);
+  color: var(--surface, #ffffff);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.inline-references strong,
+.inline-references small {
+  display: block;
+}
+
+.inline-references strong {
+  overflow: hidden;
+  color: var(--heading, #111827);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inline-references small {
+  margin-top: 2px;
+  color: var(--muted, #64748b);
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+.thinking-line {
+  display: flex;
+  gap: 6px;
+  min-height: 24px;
+  align-items: center;
+}
+
+.thinking-line span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted, #64748b);
+  animation: typingPulse 900ms infinite ease-in-out;
+}
+
+.thinking-line span:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.thinking-line span:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+.error-message {
+  justify-self: center;
+  width: min(850px, 100%);
+  margin: 0 0 10px;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  background: #fff1f2;
+  color: #991b1b;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+@keyframes riseIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes typingPulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
+@media (max-width: 760px) {
+  .assistant-screen {
+    min-height: calc(100vh - 96px);
   }
 
-  .composer {
-    grid-template-columns: 1fr;
+  .prompt-shell {
+    grid-template-columns: 38px minmax(0, 1fr) 44px;
+    border-radius: 24px;
+  }
+
+  .mode-pill {
+    display: none;
   }
 }
 </style>

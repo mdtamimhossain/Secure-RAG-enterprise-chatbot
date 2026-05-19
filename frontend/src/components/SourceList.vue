@@ -1,49 +1,51 @@
 <script setup>
-import { FileText, ShieldCheck } from '@lucide/vue'
+import { computed } from 'vue'
+import { FileText, Library, ShieldCheck } from '@lucide/vue'
 
-defineProps({
+const props = defineProps({
   sources: {
     type: Array,
     default: () => [],
   },
 })
 
+const sourceCountLabel = computed(() =>
+  props.sources.length === 1 ? '1 reference' : `${props.sources.length} references`,
+)
+
 function labelFor(source) {
   const metadata = source.metadata || {}
-  return metadata.filename || metadata.source || 'Unknown source'
+  return metadata.filename || metadata.source || 'Company document'
 }
 </script>
 
 <template>
-  <section class="sources-panel" aria-label="Retrieved sources">
-    <div class="panel-heading">
-      <div>
-        <h2>Retrieved Sources</h2>
-        <p>{{ sources.length }} document chunks used</p>
+  <section class="reference-panel" aria-label="Answer references">
+    <div class="reference-heading">
+      <div class="reference-icon">
+        <Library :size="18" aria-hidden="true" />
       </div>
-      <ShieldCheck :size="20" aria-hidden="true" />
+      <div>
+        <h2>References</h2>
+        <p>{{ sourceCountLabel }} from authorized retrieval</p>
+      </div>
     </div>
 
-    <div v-if="sources.length === 0" class="empty-state">
-      No sources returned for this answer.
+    <div v-if="sources.length === 0" class="empty-reference">
+      <ShieldCheck :size="22" aria-hidden="true" />
+      <p>References will appear here after the assistant retrieves matching company chunks.</p>
     </div>
 
-    <ol v-else class="source-list">
-      <li v-for="(source, index) in sources" :key="`${labelFor(source)}-${index}`" class="source-item">
-        <div class="source-title">
+    <ol v-else class="reference-list">
+      <li v-for="(source, index) in sources" :key="`${labelFor(source)}-${index}`" class="reference-card">
+        <div class="reference-title">
+          <span>{{ index + 1 }}</span>
+          <div>
+            <strong>{{ labelFor(source) }}</strong>
+            <small>{{ source.metadata?.department || 'general' }} / {{ source.metadata?.category || 'general' }}</small>
+          </div>
           <FileText :size="16" aria-hidden="true" />
-          <span>{{ labelFor(source) }}</span>
         </div>
-        <dl>
-          <div>
-            <dt>Department</dt>
-            <dd>{{ source.metadata?.department || 'general' }}</dd>
-          </div>
-          <div>
-            <dt>Category</dt>
-            <dd>{{ source.metadata?.category || 'general' }}</dd>
-          </div>
-        </dl>
         <p>{{ source.content }}</p>
       </li>
     </ol>
@@ -51,91 +53,143 @@ function labelFor(source) {
 </template>
 
 <style scoped>
-.sources-panel {
+.reference-panel {
   min-width: 0;
+  color: var(--text, #172033);
 }
 
-.panel-heading {
+.reference-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   padding-bottom: 14px;
-  border-bottom: 1px solid #e5eaf0;
+  border-bottom: 1px solid var(--border, #e5eaf0);
 }
 
-h2 {
-  margin: 0;
-  color: #172033;
-  font-size: 16px;
+.reference-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--role-accent) 12%, var(--surface, #ffffff));
+  color: var(--role-accent);
 }
 
+h2,
 p {
   margin: 0;
 }
 
-.panel-heading p {
+h2 {
+  color: var(--text, #172033);
+  font-size: 16px;
+}
+
+.reference-heading p {
   margin-top: 3px;
-  color: #64748b;
-  font-size: 13px;
+  color: var(--muted, #64748b);
+  font-size: 12px;
 }
 
-.empty-state {
-  padding: 18px 0;
-  color: #64748b;
-  font-size: 14px;
-}
-
-.source-list {
+.empty-reference {
   display: grid;
-  gap: 12px;
+  place-items: center;
+  min-height: 230px;
+  padding: 22px;
+  color: var(--muted, #64748b);
+  text-align: center;
+}
+
+.empty-reference svg {
+  color: var(--role-accent);
+}
+
+.empty-reference p {
+  margin-top: 10px;
+  max-width: 260px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.reference-list {
+  display: grid;
+  gap: 10px;
   margin: 14px 0 0;
   padding: 0;
   list-style: none;
 }
 
-.source-item {
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
+.reference-card {
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 10px;
+  background: var(--surface, #ffffff);
   padding: 12px;
-  background: #ffffff;
+  animation: referenceIn 180ms ease both;
 }
 
-.source-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #172033;
-  font-weight: 700;
-  font-size: 13px;
-}
-
-dl {
+.reference-title {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  margin: 10px 0;
+  grid-template-columns: 26px minmax(0, 1fr) 18px;
+  gap: 9px;
+  align-items: start;
 }
 
-dt {
-  color: #64748b;
-  font-size: 11px;
-  text-transform: uppercase;
+.reference-title > span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--text, #111827);
+  color: var(--surface, #ffffff);
+  font-size: 12px;
+  font-weight: 850;
 }
 
-dd {
-  margin: 2px 0 0;
-  color: #334155;
+.reference-title strong,
+.reference-title small {
+  display: block;
+}
+
+.reference-title strong {
+  overflow: hidden;
+  color: var(--text, #172033);
   font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.source-item p {
+.reference-title small {
+  margin-top: 2px;
+  color: var(--muted, #64748b);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.reference-title svg {
+  color: var(--muted, #64748b);
+}
+
+.reference-card p {
   display: -webkit-box;
   overflow: hidden;
-  color: #475569;
+  margin-top: 10px;
+  color: var(--muted, #475569);
   font-size: 13px;
-  line-height: 1.45;
-  -webkit-line-clamp: 5;
+  line-height: 1.5;
+  -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
+}
+
+@keyframes referenceIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

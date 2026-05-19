@@ -9,22 +9,25 @@ import {
   FileLock2,
   LayoutDashboard,
   LogOut,
+  Moon,
+  MessageCircle,
   Shield,
   Sparkles,
+  Sun,
   UsersRound,
 } from '@lucide/vue'
 import ChatBox from './components/ChatBox.vue'
 import RoleSelector from './components/RoleSelector.vue'
-import SourceList from './components/SourceList.vue'
 import { getServiceStatus } from './services/api'
 
 const sessionStarted = ref(false)
 const loginName = ref('')
 const loginRole = ref('employee')
 const selectedRole = ref('employee')
-const sources = ref([])
+const activeView = ref('workspace')
 const status = ref(null)
 const statusError = ref('')
+const isDarkMode = ref(true)
 
 const roleProfiles = {
   employee: {
@@ -69,9 +72,66 @@ const roleProfiles = {
   },
 }
 
+const navItems = [
+  { id: 'workspace', label: 'Workspace', icon: LayoutDashboard },
+  { id: 'assistant', label: 'Assistant', icon: Bot },
+  { id: 'documents', label: 'Documents', icon: FileLock2 },
+  { id: 'directory', label: 'Directory', icon: UsersRound },
+]
+
+const documentsByRole = {
+  employee: [
+    { name: 'Employee Handbook', department: 'General', category: 'Handbook', access: 'Available' },
+    { name: 'Benefits and Perks', department: 'General', category: 'Benefits', access: 'Available' },
+    { name: 'Leave Policy', department: 'HR', category: 'Leave', access: 'Available' },
+  ],
+  hr: [
+    { name: 'Employee Handbook', department: 'General', category: 'Handbook', access: 'Available' },
+    { name: 'Benefits and Perks', department: 'General', category: 'Benefits', access: 'Available' },
+    { name: 'Leave Policy', department: 'HR', category: 'Leave', access: 'Available' },
+    { name: 'Onboarding Guide', department: 'HR', category: 'People Ops', access: 'Available' },
+  ],
+  finance: [
+    { name: 'Employee Handbook', department: 'General', category: 'Handbook', access: 'Available' },
+    { name: 'Annual Report', department: 'Finance', category: 'Finance Report', access: 'Available' },
+    { name: 'Budget Planning Notes', department: 'Finance', category: 'Budget', access: 'Available' },
+  ],
+  executive: [
+    { name: 'Employee Handbook', department: 'General', category: 'Handbook', access: 'Available' },
+    { name: 'Leave Policy', department: 'HR', category: 'Leave', access: 'Available' },
+    { name: 'Annual Report', department: 'Finance', category: 'Finance Report', access: 'Available' },
+    { name: 'Budget Planning Notes', department: 'Finance', category: 'Budget', access: 'Available' },
+  ],
+}
+
+const directoryByRole = {
+  employee: [
+    { name: 'Maya Chen', team: 'Engineering', relation: 'Manager', status: 'Available' },
+    { name: 'Priya Nair', team: 'Human Resources', relation: 'HR contact', status: 'Busy' },
+    { name: 'IT Service Desk', team: 'Operations', relation: 'Support', status: 'Available' },
+  ],
+  hr: [
+    { name: 'Maya Chen', team: 'Engineering', relation: 'Manager', status: 'Available' },
+    { name: 'Omar Rahman', team: 'Finance', relation: 'Finance partner', status: 'Away' },
+    { name: 'David Lee', team: 'Leadership', relation: 'Executive sponsor', status: 'Available' },
+  ],
+  finance: [
+    { name: 'Omar Rahman', team: 'Finance', relation: 'Manager', status: 'Available' },
+    { name: 'Priya Nair', team: 'Human Resources', relation: 'Policy contact', status: 'Busy' },
+    { name: 'David Lee', team: 'Leadership', relation: 'Reviewer', status: 'Available' },
+  ],
+  executive: [
+    { name: 'Maya Chen', team: 'Engineering', relation: 'Engineering lead', status: 'Available' },
+    { name: 'Priya Nair', team: 'Human Resources', relation: 'People lead', status: 'Busy' },
+    { name: 'Omar Rahman', team: 'Finance', relation: 'Finance lead', status: 'Available' },
+  ],
+}
+
 const activeProfile = computed(() => roleProfiles[selectedRole.value] || roleProfiles.employee)
 const loginProfile = computed(() => roleProfiles[loginRole.value] || roleProfiles.employee)
 const displayName = computed(() => loginName.value.trim() || 'Demo User')
+const availableDocuments = computed(() => documentsByRole[selectedRole.value] || documentsByRole.employee)
+const directoryPeople = computed(() => directoryByRole[selectedRole.value] || directoryByRole.employee)
 
 const initials = computed(() =>
   displayName.value
@@ -85,17 +145,20 @@ const initials = computed(() =>
 function startSession() {
   if (!loginName.value.trim()) return
   selectedRole.value = loginRole.value
+  activeView.value = 'workspace'
   sessionStarted.value = true
-  sources.value = []
 }
 
 function signOut() {
   sessionStarted.value = false
-  sources.value = []
 }
 
-function updateSources(nextSources) {
-  sources.value = nextSources
+function switchView(viewId) {
+  activeView.value = viewId
+}
+
+function toggleTheme() {
+  isDarkMode.value = !isDarkMode.value
 }
 
 onMounted(async () => {
@@ -119,7 +182,7 @@ onMounted(async () => {
       <div class="login-copy">
         <div class="portal-badge">
           <Sparkles :size="18" aria-hidden="true" />
-          <span>Acme Internal Preview</span>
+          <span>Codemars Intranet Preview</span>
         </div>
         <h1>Enter the employee AI workspace</h1>
         <p>
@@ -145,7 +208,7 @@ onMounted(async () => {
           </div>
           <div>
             <strong>{{ loginName.trim() || 'Your session' }}</strong>
-            <span>{{ loginProfile.title }} · {{ loginProfile.department }}</span>
+            <span>{{ loginProfile.title }} - {{ loginProfile.department }}</span>
           </div>
         </div>
 
@@ -157,64 +220,81 @@ onMounted(async () => {
     </section>
   </main>
 
-  <div v-else class="app-shell" :style="{ '--role-accent': activeProfile.accent }">
+  <div
+    v-else
+    class="app-shell"
+    :class="{ 'dark-mode': isDarkMode }"
+    :style="{ '--role-accent': activeProfile.accent }"
+  >
     <aside class="sidebar" aria-label="Primary navigation">
-      <div class="brand">
-        <div class="brand-mark">
-          <Building2 :size="22" aria-hidden="true" />
+      <div class="sidebar-top">
+        <div class="brand">
+          <div class="brand-mark">
+            <Building2 :size="22" aria-hidden="true" />
+          </div>
+          <div>
+            <strong>Codemars Intranet</strong>
+            <span>{{ activeProfile.label }} access</span>
+          </div>
         </div>
-        <div>
-          <strong>Acme Intranet</strong>
-          <span>{{ activeProfile.label }} session</span>
-        </div>
+
+        <nav>
+          <button
+            v-for="item in navItems"
+            :key="item.id"
+            type="button"
+            :class="{ active: activeView === item.id }"
+            @click="switchView(item.id)"
+          >
+            <component :is="item.icon" :size="18" aria-hidden="true" />
+            <span>{{ item.label }}</span>
+          </button>
+        </nav>
       </div>
 
-      <nav>
-        <a class="active" href="#">
-          <LayoutDashboard :size="18" aria-hidden="true" />
-          <span>Workspace</span>
-        </a>
-        <a href="#">
-          <Bot :size="18" aria-hidden="true" />
-          <span>Assistant</span>
-        </a>
-        <a href="#">
-          <FileLock2 :size="18" aria-hidden="true" />
-          <span>Documents</span>
-        </a>
-        <a href="#">
-          <UsersRound :size="18" aria-hidden="true" />
-          <span>Directory</span>
-        </a>
-      </nav>
+      <div class="sidebar-footer">
+        <div class="security-note">
+          <Shield :size="18" aria-hidden="true" />
+          <span>RBAC filtering active</span>
+        </div>
 
-      <button class="signout-button" type="button" @click="signOut">
-        <LogOut :size="17" aria-hidden="true" />
-        <span>Change user</span>
-      </button>
-
-      <div class="security-note">
-        <Shield :size="18" aria-hidden="true" />
-        <span>RBAC filtering active</span>
+        <button class="user-menu" type="button" title="Change user" @click="signOut">
+          <div class="avatar-chip">{{ initials }}</div>
+          <div>
+            <span>{{ displayName }}</span>
+            <small>{{ activeProfile.title }}</small>
+          </div>
+          <LogOut :size="16" aria-hidden="true" />
+        </button>
       </div>
     </aside>
 
     <main class="main-area">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Internal employee workspace</p>
+      <header class="topbar" :class="{ 'assistant-topbar': activeView === 'assistant' }">
+        <button class="theme-icon-button" type="button" :title="isDarkMode ? 'Light mode' : 'Dark mode'" @click="toggleTheme">
+          <Sun v-if="isDarkMode" :size="18" aria-hidden="true" />
+          <Moon v-else :size="18" aria-hidden="true" />
+        </button>
+        <div v-if="activeView !== 'assistant'">
+          <p class="eyebrow">Codemars Intranet</p>
           <h1>{{ activeProfile.label }} AI Knowledge Assistant</h1>
-        </div>
-        <div class="profile-chip">
-          <div class="avatar-chip">{{ initials }}</div>
-          <div>
-            <span>{{ displayName }}</span>
-            <small>{{ activeProfile.department }}</small>
-          </div>
+          <span class="topbar-subtitle">
+            Role-aware search across company documents, policies, and internal knowledge.
+          </span>
         </div>
       </header>
 
-      <section class="summary-grid" aria-label="Workspace summary">
+      <section v-if="activeView === 'workspace'" class="dashboard-hero view-enter">
+        <span>Access locked to {{ activeProfile.label }}</span>
+        <h2>Chat with AI Assistant</h2>
+        <p>Ask questions from the documents your current role is allowed to read.</p>
+        <button type="button" @click="switchView('assistant')">
+          <MessageCircle :size="18" aria-hidden="true" />
+          <span>Open Assistant</span>
+        </button>
+      </section>
+
+      <section v-if="activeView === 'workspace'" class="summary-grid view-enter" aria-label="Workspace summary">
         <div class="summary-item">
           <BadgeCheck :size="20" aria-hidden="true" />
           <div>
@@ -245,27 +325,62 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section class="role-section">
-        <div>
-          <h2>Access Context</h2>
-          <p>{{ displayName }} is currently using {{ activeProfile.label }} document access.</p>
-        </div>
-        <RoleSelector v-model="selectedRole" />
-      </section>
-
       <p v-if="statusError" class="status-error">{{ statusError }}</p>
 
-      <section class="workspace-grid">
+      <section v-if="activeView === 'assistant'" class="assistant-page view-enter">
         <div class="workspace-panel chat-wrap">
           <ChatBox
             :role="selectedRole"
             :role-label="activeProfile.label"
             :user-name="displayName"
-            @sources-updated="updateSources"
           />
         </div>
-        <div class="workspace-panel sources-wrap">
-          <SourceList :sources="sources" />
+      </section>
+
+      <section v-if="activeView === 'documents'" class="view-page view-enter">
+        <div class="view-header">
+          <div>
+            <h2>Document Access</h2>
+            <p>{{ activeProfile.label }} role can search {{ activeProfile.access.toLowerCase() }}.</p>
+          </div>
+          <FileLock2 :size="24" aria-hidden="true" />
+        </div>
+
+        <div class="data-table">
+          <div class="table-row table-head">
+            <span>Document</span>
+            <span>Department</span>
+            <span>Category</span>
+            <span>Status</span>
+          </div>
+          <div v-for="document in availableDocuments" :key="document.name" class="table-row">
+            <strong>{{ document.name }}</strong>
+            <span>{{ document.department }}</span>
+            <span>{{ document.category }}</span>
+            <em>{{ document.access }}</em>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="activeView === 'directory'" class="view-page view-enter">
+        <div class="view-header">
+          <div>
+            <h2>Internal Directory</h2>
+            <p>Demo contacts matched to {{ displayName }}'s {{ activeProfile.label }} session.</p>
+          </div>
+          <UsersRound :size="24" aria-hidden="true" />
+        </div>
+
+        <div class="directory-grid">
+          <article v-for="person in directoryPeople" :key="person.name" class="person-card">
+            <div class="person-avatar">{{ person.name.split(' ').map((part) => part[0]).join('') }}</div>
+            <div>
+              <h3>{{ person.name }}</h3>
+              <p>{{ person.relation }}</p>
+              <span>{{ person.team }}</span>
+            </div>
+            <em :class="person.status.toLowerCase()">{{ person.status }}</em>
+          </article>
         </div>
       </section>
     </main>
@@ -494,18 +609,58 @@ input {
 
 .app-shell {
   --role-accent: #1f6feb;
+  --app-bg: #eef2f7;
+  --surface: #ffffff;
+  --surface-soft: #f8fbff;
+  --border: #dbe3ee;
+  --text: #172033;
+  --heading: #111827;
+  --muted: #64748b;
+  --muted-strong: #1e3a8a;
+  --soft-shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
   display: grid;
   min-height: 100vh;
-  grid-template-columns: 252px minmax(0, 1fr);
+  grid-template-columns: 268px minmax(0, 1fr);
+  background: var(--app-bg);
+  color: var(--text);
+  transition:
+    background 180ms ease,
+    color 180ms ease;
+}
+
+.app-shell.dark-mode {
+  --app-bg: #0b1020;
+  --surface: #111827;
+  --surface-soft: #172033;
+  --border: #273449;
+  --text: #e5edf7;
+  --heading: #f8fafc;
+  --muted: #9aa7ba;
+  --muted-strong: #bfdbfe;
+  --soft-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
 }
 
 .sidebar {
+  position: sticky;
+  top: 0;
   display: flex;
   flex-direction: column;
-  gap: 26px;
-  border-right: 1px solid #dbe3ee;
-  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  justify-content: space-between;
+  gap: 20px;
+  height: 100vh;
+  border-right: 1px solid var(--border);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-soft) 100%);
   padding: 22px 16px;
+}
+
+.sidebar-top,
+.sidebar-footer {
+  display: grid;
+  gap: 22px;
+}
+
+.sidebar-footer {
+  gap: 12px;
 }
 
 .brand {
@@ -527,21 +682,69 @@ input {
 
 .brand strong,
 .brand span,
-.profile-chip span,
-.profile-chip small,
+.user-menu span,
+.user-menu small,
 .summary-item span,
 .summary-item strong {
   display: block;
 }
 
 .brand strong {
-  font-size: 15px;
+  color: var(--heading);
+  font-size: 14px;
+  letter-spacing: 0;
 }
 
 .brand span {
   margin-top: 2px;
-  color: #64748b;
+  color: var(--muted);
   font-size: 12px;
+}
+
+.user-menu {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 11px;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.user-menu:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--role-accent) 32%, var(--border));
+  box-shadow: var(--soft-shadow);
+}
+
+.user-menu span {
+  overflow: hidden;
+  color: var(--heading);
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu small {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu svg {
+  color: var(--muted);
 }
 
 nav {
@@ -549,41 +752,88 @@ nav {
   gap: 6px;
 }
 
-nav a {
+nav button {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   min-height: 40px;
+  border: 0;
   border-radius: 6px;
   padding: 0 10px;
-  color: #475569;
-  text-decoration: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
   font-weight: 650;
   font-size: 14px;
+  text-align: left;
+  transition:
+    transform 150ms ease,
+    background 150ms ease,
+    color 150ms ease;
 }
 
-nav a.active {
-  background: color-mix(in srgb, var(--role-accent) 12%, #ffffff);
+nav button:hover {
+  transform: translateX(2px);
+  background: color-mix(in srgb, var(--role-accent) 9%, var(--surface));
+}
+
+nav button.active {
+  background: color-mix(in srgb, var(--role-accent) 15%, var(--surface));
   color: var(--role-accent);
 }
 
-.signout-button {
+.theme-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   min-height: 40px;
-  border: 1px solid #dbe3ee;
-  background: #ffffff;
-  color: #475569;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.theme-button:hover {
+  border-color: color-mix(in srgb, var(--role-accent) 32%, var(--border));
+  color: var(--heading);
+}
+
+.theme-icon-button {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--heading);
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.theme-icon-button:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--role-accent) 36%, var(--border));
+  background: color-mix(in srgb, var(--role-accent) 9%, var(--surface));
 }
 
 .security-note {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: auto;
-  border: 1px solid #dbeafe;
+  border: 1px solid var(--border);
   border-radius: 6px;
-  background: #f8fbff;
+  background: var(--surface-soft);
   padding: 12px;
-  color: #1e3a8a;
+  color: var(--muted-strong);
   font-size: 13px;
   font-weight: 700;
 }
@@ -596,14 +846,29 @@ nav a.active {
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 20px;
-  margin-bottom: 18px;
+  justify-content: flex-start;
+  gap: 14px;
+  margin-bottom: 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  padding: 14px 16px;
+  box-shadow: var(--soft-shadow);
+  backdrop-filter: blur(16px);
+}
+
+.topbar.assistant-topbar {
+  border: 0;
+  background: transparent;
+  margin-bottom: 0;
+  padding: 0;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .eyebrow {
   margin: 0 0 4px;
-  color: #64748b;
+  color: var(--muted);
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
@@ -611,20 +876,22 @@ nav a.active {
 
 h1 {
   margin: 0;
-  color: #111827;
+  color: var(--heading);
   font-size: 28px;
   font-weight: 760;
 }
 
-.profile-chip {
+.topbar-subtitle {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.topbar-actions {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 218px;
-  border: 1px solid #d8dee7;
-  border-radius: 6px;
-  background: #ffffff;
-  padding: 10px 12px;
 }
 
 .avatar-chip {
@@ -634,15 +901,6 @@ h1 {
   font-size: 13px;
 }
 
-.profile-chip span {
-  font-weight: 760;
-}
-
-.profile-chip small {
-  margin-top: 2px;
-  color: #64748b;
-}
-
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -650,15 +908,170 @@ h1 {
   margin-bottom: 16px;
 }
 
+.dashboard-hero {
+  display: grid;
+  gap: 12px;
+  justify-items: start;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--role-accent) 11%, var(--surface)), var(--surface) 58%),
+    var(--surface);
+  margin-bottom: 16px;
+  padding: 22px;
+  box-shadow: var(--soft-shadow);
+}
+
+.dashboard-hero > span {
+  border: 1px solid color-mix(in srgb, var(--role-accent) 30%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--role-accent) 10%, var(--surface));
+  color: var(--role-accent);
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.dashboard-hero h2 {
+  margin: 0;
+  color: var(--heading);
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.dashboard-hero p {
+  max-width: 640px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.dashboard-hero button {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--heading);
+  color: var(--surface);
+  padding: 0 16px;
+  cursor: pointer;
+  font-weight: 820;
+}
+
+.workspace-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.overview-hero,
+.session-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--role-accent) 12%, var(--surface)), var(--surface) 54%),
+    var(--surface);
+  box-shadow: var(--soft-shadow);
+}
+
+.overview-hero {
+  padding: 24px;
+}
+
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, var(--role-accent) 30%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--role-accent) 10%, var(--surface));
+  padding: 7px 10px;
+  color: var(--role-accent);
+  font-size: 12px;
+  font-weight: 820;
+}
+
+.overview-hero h2 {
+  margin: 16px 0 8px;
+  color: var(--heading);
+  font-size: 30px;
+  line-height: 1.15;
+}
+
+.overview-hero p {
+  max-width: 740px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.session-card {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 20px;
+}
+
+.session-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.session-card strong {
+  color: var(--heading);
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.session-card p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+
 .summary-item {
   display: flex;
   align-items: center;
   gap: 12px;
   min-height: 78px;
-  border: 1px solid #dbe3ee;
-  border-radius: 6px;
-  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
   padding: 14px;
+  animation: summaryCardIn 280ms ease both;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.summary-item:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--role-accent) 35%, var(--border));
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.summary-item:nth-child(1) {
+  animation-delay: 40ms;
+}
+
+.summary-item:nth-child(2) {
+  animation-delay: 90ms;
+}
+
+.summary-item:nth-child(3) {
+  animation-delay: 140ms;
+}
+
+.summary-item:nth-child(4) {
+  animation-delay: 190ms;
 }
 
 .summary-item svg {
@@ -667,26 +1080,57 @@ h1 {
 }
 
 .summary-item span {
-  color: #64748b;
+  color: var(--muted);
   font-size: 12px;
 }
 
 .summary-item strong {
   margin-top: 3px;
-  color: #172033;
+  color: var(--text);
   font-size: 14px;
 }
 
 .role-section {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 300px;
   gap: 18px;
   align-items: center;
-  border: 1px solid #dbe3ee;
-  border-radius: 6px;
-  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface);
   padding: 16px;
   margin-bottom: 16px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.04);
+}
+
+.locked-role-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  border: 1px solid color-mix(in srgb, var(--role-accent) 34%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--role-accent) 10%, var(--surface));
+  padding: 12px;
+}
+
+.locked-role-card svg {
+  color: var(--role-accent);
+}
+
+.locked-role-card strong,
+.locked-role-card span {
+  display: block;
+}
+
+.locked-role-card strong {
+  color: var(--text);
+}
+
+.locked-role-card span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .role-section h2,
@@ -700,7 +1144,7 @@ h1 {
 
 .role-section p {
   margin-top: 4px;
-  color: #64748b;
+  color: var(--muted);
   font-size: 13px;
 }
 
@@ -712,24 +1156,213 @@ h1 {
   padding: 10px 12px;
 }
 
-.workspace-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.8fr);
-  gap: 16px;
-  align-items: start;
+.assistant-page {
+  min-height: calc(100vh - 132px);
 }
 
 .workspace-panel {
   min-width: 0;
-  border: 1px solid #dbe3ee;
-  border-radius: 6px;
-  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
   padding: 16px;
+  box-shadow: var(--soft-shadow);
+}
+
+.assistant-page .workspace-panel {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  box-shadow: none;
 }
 
 .sources-wrap {
   position: sticky;
   top: 20px;
+}
+
+.view-enter {
+  animation: viewIn 220ms ease both;
+}
+
+@keyframes viewIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes summaryCardIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.view-page {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--role-accent) 9%, var(--surface)), var(--surface) 42%),
+    var(--surface);
+  padding: 18px;
+}
+
+.view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--role-accent);
+}
+
+.view-header h2,
+.view-header p {
+  margin: 0;
+}
+
+.view-header h2 {
+  color: var(--text);
+  font-size: 20px;
+}
+
+.view-header p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.data-table {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.table-row {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.2fr) minmax(120px, 0.8fr) minmax(120px, 0.8fr) 96px;
+  gap: 12px;
+  align-items: center;
+  min-height: 54px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 10px 12px;
+}
+
+.table-head {
+  min-height: 42px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.table-row strong {
+  color: var(--text);
+}
+
+.table-row span {
+  color: var(--muted);
+}
+
+.table-row em,
+.person-card em {
+  justify-self: start;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--role-accent) 12%, var(--surface));
+  color: var(--role-accent);
+  padding: 5px 9px;
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.directory-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.person-card {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-height: 150px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 14px;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.person-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+}
+
+.person-avatar {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--role-accent);
+  color: #ffffff;
+  font-weight: 850;
+}
+
+.person-card h3,
+.person-card p {
+  margin: 0;
+}
+
+.person-card h3 {
+  color: var(--text);
+  font-size: 16px;
+}
+
+.person-card p {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.person-card span {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.person-card em {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
+.person-card em.busy {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.person-card em.away {
+  background: #fefce8;
+  color: #a16207;
 }
 
 @media (max-width: 1120px) {
@@ -738,26 +1371,38 @@ h1 {
   }
 
   .brand div:last-child,
+  .user-menu div:nth-child(2),
+  .user-menu > svg,
   nav span,
-  .security-note span,
-  .signout-button span {
+  .security-note span {
     display: none;
   }
 
-  nav a,
+  nav button,
   .security-note,
-  .signout-button {
+  .user-menu {
     justify-content: center;
+  }
+
+  .user-menu {
+    grid-template-columns: 38px;
+    justify-content: center;
+    padding: 8px;
   }
 
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .workspace-grid,
+  .assistant-page,
   .role-section,
-  .login-panel {
+  .login-panel,
+  .directory-grid {
     grid-template-columns: 1fr;
+  }
+
+  .table-row {
+    grid-template-columns: 1fr 1fr;
   }
 
   .sources-wrap {
@@ -791,8 +1436,11 @@ h1 {
   }
 
   .topbar {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .topbar-actions {
+    justify-content: flex-start;
   }
 
   .summary-grid {
