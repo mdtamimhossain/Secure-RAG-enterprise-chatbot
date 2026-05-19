@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -193,14 +194,22 @@ class RAGChain:
         role: str,
         top_k: int = 3,
     ) -> RAGResponse:
-        sources = self.retriever.retrieve(question, role=role, top_k=top_k)
-
         if not question.strip():
             return RAGResponse(
                 answer="Please ask a question.",
                 sources=[],
                 model=self.llm_client.__class__.__name__,
             )
+
+        small_talk_answer = answer_small_talk(question)
+        if small_talk_answer:
+            return RAGResponse(
+                answer=small_talk_answer,
+                sources=[],
+                model="SmallTalkRouter",
+            )
+
+        sources = self.retriever.retrieve(question, role=role, top_k=top_k)
 
         if not sources:
             return RAGResponse(
@@ -217,6 +226,53 @@ class RAGChain:
             sources=sources,
             model=llm_response.model,
         )
+
+
+def answer_small_talk(message: str) -> str:
+    """Handle simple conversational messages without document retrieval."""
+
+    normalized = re.sub(r"[^a-z0-9\s']", " ", message.lower())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+
+    greetings = {
+        "hi",
+        "hello",
+        "hey",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "howdy",
+    }
+    thanks = {
+        "thanks",
+        "thank you",
+        "thank you so much",
+        "thanks a lot",
+    }
+    help_requests = {
+        "help",
+        "what can you do",
+        "what can you help with",
+        "how can you help",
+    }
+
+    if normalized in greetings:
+        return (
+            "Hi. I can help answer questions using the company documents available "
+            "to your role."
+        )
+
+    if normalized in thanks:
+        return "You're welcome. Ask me anytime you want to check company documents."
+
+    if normalized in help_requests:
+        return (
+            "I can search your authorized Codemars Intranet documents and answer "
+            "questions about policies, handbooks, benefits, finance reports, or other "
+            "indexed company information."
+        )
+
+    return ""
 
 
 def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:

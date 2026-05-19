@@ -17,11 +17,17 @@ from backend.src.rag_chain import (
     GroqLLM,
     OpenAILLM,
     RAGChain,
+    answer_small_talk,
     create_llm_client,
     generate_llm_answer,
 )
 from backend.src.retriever import Retriever
 from backend.src.vector_store import ChromaVectorStore
+
+
+class NeverRetrieve:
+    def retrieve(self, question: str, role: str, top_k: int):
+        raise AssertionError("Small talk should not call the retriever.")
 
 
 class RagChainTests(unittest.TestCase):
@@ -52,6 +58,26 @@ class RagChainTests(unittest.TestCase):
         llm = create_llm_client(provider="fake")
 
         self.assertIsInstance(llm, FakeLLM)
+
+    def test_small_talk_router_handles_greeting(self) -> None:
+        answer = answer_small_talk("Hi")
+
+        self.assertIn("Hi", answer)
+        self.assertIn("company documents", answer)
+
+    def test_small_talk_router_ignores_document_question(self) -> None:
+        answer = answer_small_talk("What is the leave policy?")
+
+        self.assertEqual(answer, "")
+
+    def test_rag_chain_answers_greeting_without_retrieval(self) -> None:
+        rag_chain = RAGChain(NeverRetrieve(), FakeLLM())
+
+        response = rag_chain.answer_question("hello", role="employee")
+
+        self.assertEqual(response.sources, [])
+        self.assertEqual(response.model, "SmallTalkRouter")
+        self.assertIn("company documents", response.answer)
 
     def test_rag_chain_retrieves_context_and_calls_llm(self) -> None:
         model = HashEmbeddingModel(dimensions=8)
