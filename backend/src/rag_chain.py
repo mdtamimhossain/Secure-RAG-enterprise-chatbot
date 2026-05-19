@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.error import HTTPError, URLError
@@ -201,23 +200,7 @@ class RAGChain:
                 model=self.llm_client.__class__.__name__,
             )
 
-        small_talk_answer = answer_small_talk(question)
-        if small_talk_answer:
-            return RAGResponse(
-                answer=small_talk_answer,
-                sources=[],
-                model="SmallTalkRouter",
-            )
-
         sources = self.retriever.retrieve(question, role=role, top_k=top_k)
-
-        if not sources:
-            return RAGResponse(
-                answer="I could not find relevant information you are allowed to access.",
-                sources=[],
-                model=self.llm_client.__class__.__name__,
-            )
-
         prompt = build_rag_prompt(question=question, sources=sources)
         llm_response = generate_llm_answer(prompt, self.llm_client)
 
@@ -226,53 +209,6 @@ class RAGChain:
             sources=sources,
             model=llm_response.model,
         )
-
-
-def answer_small_talk(message: str) -> str:
-    """Handle simple conversational messages without document retrieval."""
-
-    normalized = re.sub(r"[^a-z0-9\s']", " ", message.lower())
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-
-    greetings = {
-        "hi",
-        "hello",
-        "hey",
-        "good morning",
-        "good afternoon",
-        "good evening",
-        "howdy",
-    }
-    thanks = {
-        "thanks",
-        "thank you",
-        "thank you so much",
-        "thanks a lot",
-    }
-    help_requests = {
-        "help",
-        "what can you do",
-        "what can you help with",
-        "how can you help",
-    }
-
-    if normalized in greetings:
-        return (
-            "Hi. I can help answer questions using the company documents available "
-            "to your role."
-        )
-
-    if normalized in thanks:
-        return "You're welcome. Ask me anytime you want to check company documents."
-
-    if normalized in help_requests:
-        return (
-            "I can search your authorized Codemars Intranet documents and answer "
-            "questions about policies, handbooks, benefits, finance reports, or other "
-            "indexed company information."
-        )
-
-    return ""
 
 
 def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:
@@ -286,11 +222,21 @@ def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:
             f"Source {index} | department={department} | file={filename}\n{content}"
         )
 
-    context = "\n\n".join(context_blocks)
+    context = "\n\n".join(context_blocks) if context_blocks else "No retrieved context."
     return (
-        "Use only the context below to answer the employee question. "
-        "If the answer is not in the context, say you do not know.\n\n"
-        f"Context:\n{context}\n\n"
-        f"Question:\n{question}\n\n"
+        "You are Codemars Intranet Assistant.\n\n"
+        "Response rules:\n"
+        "1. If the user is greeting, thanking, or making casual conversation, "
+        "respond naturally and briefly. Do not mention missing documents for casual chat.\n"
+        "2. If the user asks about company/internal information, answer only using "
+        "the retrieved context below.\n"
+        "3. If the user asks about company/internal information but the retrieved "
+        "context is empty, irrelevant, or does not contain the answer, say: "
+        "\"I could not find specific information about that in your available company documents.\"\n"
+        "4. Do not invent company policies, benefits, finance data, or employee information.\n"
+        "5. The context was already filtered by backend RBAC. Never suggest that the "
+        "user can access documents outside this context.\n\n"
+        f"Retrieved context:\n{context}\n\n"
+        f"User message:\n{question}\n\n"
         "Answer:"
     )

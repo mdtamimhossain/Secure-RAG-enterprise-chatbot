@@ -17,7 +17,7 @@ from backend.src.rag_chain import (
     GroqLLM,
     OpenAILLM,
     RAGChain,
-    answer_small_talk,
+    build_rag_prompt,
     create_llm_client,
     generate_llm_answer,
 )
@@ -25,9 +25,9 @@ from backend.src.retriever import Retriever
 from backend.src.vector_store import ChromaVectorStore
 
 
-class NeverRetrieve:
+class EmptyRetriever:
     def retrieve(self, question: str, role: str, top_k: int):
-        raise AssertionError("Small talk should not call the retriever.")
+        return []
 
 
 class RagChainTests(unittest.TestCase):
@@ -59,25 +59,30 @@ class RagChainTests(unittest.TestCase):
 
         self.assertIsInstance(llm, FakeLLM)
 
-    def test_small_talk_router_handles_greeting(self) -> None:
-        answer = answer_small_talk("Hi")
+    def test_prompt_tells_llm_to_handle_casual_chat(self) -> None:
+        prompt = build_rag_prompt("Hi", sources=[])
 
-        self.assertIn("Hi", answer)
-        self.assertIn("company documents", answer)
+        self.assertIn("casual conversation", prompt)
+        self.assertIn("Do not mention missing documents for casual chat", prompt)
+        self.assertIn("No retrieved context.", prompt)
 
-    def test_small_talk_router_ignores_document_question(self) -> None:
-        answer = answer_small_talk("What is the leave policy?")
+    def test_prompt_tells_llm_to_use_context_for_company_questions(self) -> None:
+        prompt = build_rag_prompt("What is the leave policy?", sources=[])
 
-        self.assertEqual(answer, "")
+        self.assertIn("answer only using", prompt)
+        self.assertIn("I could not find specific information", prompt)
 
-    def test_rag_chain_answers_greeting_without_retrieval(self) -> None:
-        rag_chain = RAGChain(NeverRetrieve(), FakeLLM())
+    def test_rag_chain_sends_greeting_and_empty_context_to_llm(self) -> None:
+        llm = FakeLLM(response="Hi. How can I help?")
+        rag_chain = RAGChain(EmptyRetriever(), llm)
 
         response = rag_chain.answer_question("hello", role="employee")
 
+        self.assertEqual(response.answer, "Hi. How can I help?")
         self.assertEqual(response.sources, [])
-        self.assertEqual(response.model, "SmallTalkRouter")
-        self.assertIn("company documents", response.answer)
+        self.assertEqual(response.model, "FakeLLM")
+        self.assertIn("User message:\nhello", llm.last_prompt)
+        self.assertIn("No retrieved context.", llm.last_prompt)
 
     def test_rag_chain_retrieves_context_and_calls_llm(self) -> None:
         model = HashEmbeddingModel(dimensions=8)
@@ -127,7 +132,9 @@ class RagChainTests(unittest.TestCase):
             )
         ]
         embedded_chunks = embed_chunks(chunks, model)
-        llm = FakeLLM()
+        llm = FakeLLM(
+            response="I could not find specific information about that in your available company documents."
+        )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ChromaVectorStore(temp_dir, collection_name="test_rag_chain_no_sources")
@@ -146,10 +153,10 @@ class RagChainTests(unittest.TestCase):
 
         self.assertEqual(
             response.answer,
-            "I could not find relevant information you are allowed to access.",
+            "I could not find specific information about that in your available company documents.",
         )
         self.assertEqual(response.sources, [])
-        self.assertEqual(llm.last_prompt, "")
+        self.assertIn("No retrieved context.", llm.last_prompt)
 
 
 if __name__ == "__main__":
