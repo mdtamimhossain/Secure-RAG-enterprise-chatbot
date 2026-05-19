@@ -2,12 +2,12 @@ from __future__ import annotations
 
 
 ROLE_DEPARTMENT_ACCESS = {
-    "employee": ["general", "hr"],
+    "employee": ["general"],
     "hr": ["general", "hr"],
     "finance": ["general", "finance"],
     "manager": ["general", "hr", "engineering"],
-    "executive": ["general", "hr", "finance", "engineering"],
-    "admin": ["general", "hr", "finance", "engineering"],
+    "executive": ["general", "hr", "finance", "engineering", "executive"],
+    "admin": ["general", "hr", "finance", "engineering", "executive"],
 }
 
 

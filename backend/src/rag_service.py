@@ -61,6 +61,7 @@ def build_rag_service(
     vector_store = ChromaVectorStore(
         settings.persist_dir,
         collection_name=settings.collection_name,
+        reset_collection=True,
     )
     vector_store.add_chunks(embedded_chunks)
 

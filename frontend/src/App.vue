@@ -36,7 +36,7 @@ const roleProfiles = {
     department: 'Employee Workspace',
     location: 'Berlin',
     manager: 'Maya Chen',
-    access: 'General documents and HR policies',
+    access: 'General employee documents',
     focus: 'benefits, leave, company handbook, workplace tools',
     accent: '#1f6feb',
   },
@@ -83,7 +83,7 @@ const documentsByRole = {
   employee: [
     { name: 'Employee Handbook', department: 'General', category: 'Handbook', access: 'Available' },
     { name: 'Benefits and Perks', department: 'General', category: 'Benefits', access: 'Available' },
-    { name: 'Leave Policy', department: 'HR', category: 'Leave', access: 'Available' },
+    { name: 'IT Security Basics', department: 'General', category: 'Security', access: 'Available' },
   ],
   hr: [
     { name: 'Employee Handbook', department: 'General', category: 'Handbook', access: 'Available' },
@@ -101,6 +101,7 @@ const documentsByRole = {
     { name: 'Leave Policy', department: 'HR', category: 'Leave', access: 'Available' },
     { name: 'Annual Report', department: 'Finance', category: 'Finance Report', access: 'Available' },
     { name: 'Budget Planning Notes', department: 'Finance', category: 'Budget', access: 'Available' },
+    { name: 'Executive Strategy Memo', department: 'Executive', category: 'Strategy', access: 'Available' },
   ],
 }
 

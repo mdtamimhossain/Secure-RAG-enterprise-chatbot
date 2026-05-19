@@ -31,8 +31,9 @@ class DocumentLoaderTests(unittest.TestCase):
     def test_adds_department_access_metadata(self) -> None:
         expected_roles_by_department = {
             "general": "employee,hr,finance,manager,executive,admin",
-            "hr": "employee,hr,manager,executive,admin",
+            "hr": "hr,manager,executive,admin",
             "finance": "finance,executive,admin",
+            "executive": "executive,admin",
         }
 
         for department, expected_roles in expected_roles_by_department.items():

@@ -13,8 +13,8 @@ from backend.src.rbac import build_department_filter, get_allowed_departments
 
 
 class RbacTests(unittest.TestCase):
-    def test_employee_can_access_general_and_hr_docs(self) -> None:
-        self.assertEqual(get_allowed_departments("employee"), ["general", "hr"])
+    def test_employee_can_access_general_docs_only(self) -> None:
+        self.assertEqual(get_allowed_departments("employee"), ["general"])
 
     def test_unknown_role_gets_general_docs_only(self) -> None:
         self.assertEqual(get_allowed_departments("unknown"), ["general"])
@@ -23,6 +23,12 @@ class RbacTests(unittest.TestCase):
         self.assertEqual(
             build_department_filter("finance"),
             {"department": {"$in": ["general", "finance"]}},
+        )
+
+    def test_executive_can_access_all_business_departments(self) -> None:
+        self.assertEqual(
+            get_allowed_departments("executive"),
+            ["general", "hr", "finance", "engineering", "executive"],
         )
 
 

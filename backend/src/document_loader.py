@@ -14,9 +14,10 @@ METADATA_SUFFIX = ".metadata.json"
 
 DEFAULT_ROLE_ACCESS = {
     "general": ["employee", "hr", "finance", "manager", "executive", "admin"],
-    "hr": ["employee", "hr", "manager", "executive", "admin"],
+    "hr": ["hr", "manager", "executive", "admin"],
     "finance": ["finance", "executive", "admin"],
     "engineering": ["employee", "manager", "executive", "admin"],
+    "executive": ["executive", "admin"],
 }
 
 
@@ -124,7 +125,7 @@ def _infer_department(path_parts: list[str]) -> str:
 
 
 def _infer_confidentiality(top_level_folder: str) -> str:
-    if top_level_folder in {"finance"}:
+    if top_level_folder in {"finance", "executive"}:
         return "restricted"
     return "internal"
 
@@ -136,7 +137,11 @@ def _infer_category(path: Path) -> str:
         "payroll": ["payroll", "salary", "compensation", "payslip"],
         "benefits": ["benefit", "perk", "insurance"],
         "handbook": ["handbook", "getting_started"],
-        "finance_report": ["10k", "annual", "report", "revenue"],
+        "finance_report": ["10k", "annual", "report", "revenue", "budget"],
+        "procurement": ["procurement", "vendor", "purchase"],
+        "performance": ["performance", "review", "goal"],
+        "executive_strategy": ["strategy", "memo", "leadership"],
+        "board_metrics": ["board", "metric"],
         "device_policy": ["device", "laptop", "equipment"],
         "it_policy": ["system", "security", "access"],
         "career": ["career", "title", "promotion"],

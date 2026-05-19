@@ -16,6 +16,7 @@ class ChromaVectorStore:
         self,
         persist_dir: str | Path,
         collection_name: str = DEFAULT_COLLECTION_NAME,
+        reset_collection: bool = False,
     ) -> None:
         try:
             import chromadb
@@ -27,6 +28,13 @@ class ChromaVectorStore:
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         self.client = chromadb.PersistentClient(path=str(self.persist_dir))
+
+        if reset_collection:
+            try:
+                self.client.delete_collection(name=collection_name)
+            except Exception:
+                pass
+
         self.collection = self.client.get_or_create_collection(name=collection_name)
 
     def add_chunks(self, chunks: list[EmbeddedChunk]) -> None:

@@ -41,6 +41,11 @@ class RealWorldSimulationTests(unittest.TestCase):
                 "The finance budget report contains restricted revenue forecasts, "
                 "department budgets, and confidential planning numbers.",
             )
+            self._write_document(
+                data_dir / "executive" / "strategy_memo.md",
+                "The executive strategy memo contains acquisition planning, board metrics, "
+                "and confidential leadership priorities for Codemars Corporation.",
+            )
 
             documents = load_documents(data_dir)
             chunks = chunk_documents(documents, chunk_size=120, chunk_overlap=20)
@@ -61,9 +66,19 @@ class RealWorldSimulationTests(unittest.TestCase):
                     role="finance",
                     top_k=5,
                 )
-                hr_results = retriever.retrieve(
+                employee_hr_results = retriever.retrieve(
                     "How does annual leave approval work?",
                     role="employee",
+                    top_k=5,
+                )
+                hr_results = retriever.retrieve(
+                    "How does annual leave approval work?",
+                    role="hr",
+                    top_k=5,
+                )
+                executive_results = retriever.retrieve(
+                    "What does the executive strategy memo say about board metrics?",
+                    role="executive",
                     top_k=5,
                 )
             finally:
@@ -71,15 +86,19 @@ class RealWorldSimulationTests(unittest.TestCase):
 
         employee_departments = self._departments(employee_results)
         finance_departments = self._departments(finance_results)
+        employee_hr_departments = self._departments(employee_hr_results)
         hr_departments = self._departments(hr_results)
+        executive_departments = self._departments(executive_results)
 
-        self.assertEqual(len(documents), 3)
-        self.assertGreaterEqual(len(chunks), 3)
+        self.assertEqual(len(documents), 4)
+        self.assertGreaterEqual(len(chunks), 4)
         self.assertEqual(len(embedded_chunks), len(chunks))
 
         self.assertNotIn("finance", employee_departments)
         self.assertIn("finance", finance_departments)
+        self.assertNotIn("hr", employee_hr_departments)
         self.assertIn("hr", hr_departments)
+        self.assertIn("executive", executive_departments)
 
     def _write_document(self, path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
