@@ -18,7 +18,7 @@ import {
 } from '@lucide/vue'
 import ChatBox from './components/ChatBox.vue'
 import RoleSelector from './components/RoleSelector.vue'
-import { getServiceStatus } from './services/api'
+import { getMonitoringMetrics, getServiceStatus } from './services/api'
 
 const sessionStarted = ref(false)
 const loginName = ref('')
@@ -27,6 +27,8 @@ const selectedRole = ref('employee')
 const activeView = ref('workspace')
 const status = ref(null)
 const statusError = ref('')
+const metrics = ref(null)
+const metricsError = ref('')
 const isDarkMode = ref(true)
 
 const roleProfiles = {
@@ -140,6 +142,12 @@ const loginProfile = computed(() => roleProfiles[loginRole.value] || roleProfile
 const displayName = computed(() => loginName.value.trim() || 'Demo User')
 const availableDocuments = computed(() => documentsByRole[selectedRole.value] || documentsByRole.employee)
 const directoryPeople = computed(() => directoryByRole[selectedRole.value] || directoryByRole.employee)
+const topSourceDepartments = computed(() => {
+  const departments = metrics.value?.source_departments || {}
+  return Object.entries(departments)
+    .sort((first, second) => second[1] - first[1])
+    .slice(0, 3)
+})
 
 const initials = computed(() =>
   displayName.value
@@ -171,9 +179,15 @@ function toggleTheme() {
 
 onMounted(async () => {
   try {
-    status.value = await getServiceStatus()
+    const [serviceStatus, monitoringMetrics] = await Promise.all([
+      getServiceStatus(),
+      getMonitoringMetrics(),
+    ])
+    status.value = serviceStatus
+    metrics.value = monitoringMetrics
   } catch (error) {
     statusError.value = error.message
+    metricsError.value = error.message
   }
 })
 </script>
@@ -333,6 +347,59 @@ onMounted(async () => {
       </section>
 
       <p v-if="statusError" class="status-error">{{ statusError }}</p>
+      <p v-else-if="metricsError" class="status-error">{{ metricsError }}</p>
+
+      <section v-if="activeView === 'workspace'" class="monitoring-panel view-enter" aria-label="Assistant monitoring">
+        <div class="monitoring-header">
+          <div>
+            <span>Live monitoring</span>
+            <h2>Assistant activity</h2>
+          </div>
+          <Database :size="22" aria-hidden="true" />
+        </div>
+
+        <div class="metric-grid">
+          <div class="metric-card">
+            <span>Total chats</span>
+            <strong>{{ metrics?.total_chats ?? 0 }}</strong>
+          </div>
+          <div class="metric-card">
+            <span>Blocked</span>
+            <strong>{{ metrics?.blocked_chats ?? 0 }}</strong>
+          </div>
+          <div class="metric-card">
+            <span>Avg latency</span>
+            <strong>{{ metrics?.average_latency_ms ?? 0 }} ms</strong>
+          </div>
+          <div class="metric-card">
+            <span>Avg sources</span>
+            <strong>{{ metrics?.average_source_count ?? 0 }}</strong>
+          </div>
+        </div>
+
+        <div class="monitoring-details">
+          <div>
+            <span>Top source departments</span>
+            <p v-if="!topSourceDepartments.length">No document-backed answers yet.</p>
+            <ul v-else>
+              <li v-for="[department, count] in topSourceDepartments" :key="department">
+                <strong>{{ department }}</strong>
+                <small>{{ count }} hits</small>
+              </li>
+            </ul>
+          </div>
+          <div>
+            <span>Guardrail blocks</span>
+            <p v-if="!Object.keys(metrics?.guardrail_reasons || {}).length">No blocked prompts yet.</p>
+            <ul v-else>
+              <li v-for="(count, reason) in metrics.guardrail_reasons" :key="reason">
+                <strong>{{ reason.replaceAll('_', ' ') }}</strong>
+                <small>{{ count }} blocked</small>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
 
       <section v-if="activeView === 'assistant'" class="assistant-page view-enter">
         <div class="workspace-panel chat-wrap">
@@ -1109,6 +1176,105 @@ h1 {
   font-size: 14px;
 }
 
+.monitoring-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  margin-bottom: 16px;
+  padding: 16px;
+  box-shadow: var(--soft-shadow);
+}
+
+.monitoring-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.monitoring-header span,
+.monitoring-details span,
+.metric-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 760;
+  text-transform: uppercase;
+}
+
+.monitoring-header h2 {
+  margin: 3px 0 0;
+  color: var(--heading);
+  font-size: 18px;
+}
+
+.monitoring-header svg {
+  color: var(--role-accent);
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-card {
+  display: grid;
+  gap: 8px;
+  min-height: 86px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-soft) 78%, transparent);
+  padding: 13px;
+}
+
+.metric-card strong {
+  color: var(--heading);
+  font-size: 24px;
+}
+
+.monitoring-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.monitoring-details > div {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-soft) 60%, transparent);
+  padding: 13px;
+}
+
+.monitoring-details p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.monitoring-details ul {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.monitoring-details li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.monitoring-details small {
+  color: var(--muted);
+}
+
 .role-section {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -1424,6 +1590,11 @@ h1 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .metric-grid,
+  .monitoring-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .assistant-page,
   .role-section,
   .login-panel,
@@ -1474,6 +1645,11 @@ h1 {
   }
 
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-grid,
+  .monitoring-details {
     grid-template-columns: 1fr;
   }
 }

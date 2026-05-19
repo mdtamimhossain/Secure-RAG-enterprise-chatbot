@@ -28,3 +28,14 @@ export async function getServiceStatus() {
 
   return body
 }
+
+export async function getMonitoringMetrics() {
+  const response = await fetch(`${API_BASE_URL}/metrics`)
+  const body = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(body.detail || 'Unable to load monitoring metrics.')
+  }
+
+  return body
+}

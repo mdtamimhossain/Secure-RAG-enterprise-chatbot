@@ -13,12 +13,18 @@ if str(PROJECT_ROOT.parent) not in sys.path:
 from fastapi.testclient import TestClient
 
 from backend.main import app, get_rag_service
+from backend.src.monitoring import MonitoringMetrics
 
 
 class ApiTests(unittest.TestCase):
     def setUp(self) -> None:
         get_rag_service.cache_clear()
         self.client = TestClient(app)
+        self.chat_event_patcher = patch("backend.main.log_chat_event")
+        self.chat_event_patcher.start()
+
+    def tearDown(self) -> None:
+        self.chat_event_patcher.stop()
 
     def test_health_endpoint(self) -> None:
         response = self.client.get("/health")
@@ -35,6 +41,29 @@ class ApiTests(unittest.TestCase):
         self.assertGreaterEqual(body["document_count"], 1)
         self.assertGreaterEqual(body["chunk_count"], 1)
         self.assertEqual(body["collection_name"], "api_documents")
+
+    def test_metrics_endpoint_returns_monitoring_summary(self) -> None:
+        fake_metrics = MonitoringMetrics(
+            total_chats=3,
+            successful_chats=2,
+            blocked_chats=1,
+            errored_chats=0,
+            average_latency_ms=42.5,
+            average_source_count=1.33,
+            roles={"employee": 3},
+            guardrail_reasons={"prompt_injection": 1},
+            source_departments={"general": 2},
+            recent_events=[],
+        )
+
+        with patch("backend.main.get_monitoring_metrics", return_value=fake_metrics):
+            response = self.client.get("/metrics")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["total_chats"], 3)
+        self.assertEqual(body["blocked_chats"], 1)
+        self.assertEqual(body["roles"], {"employee": 3})
 
     def test_chat_endpoint_returns_answer(self) -> None:
         response = self.client.post(

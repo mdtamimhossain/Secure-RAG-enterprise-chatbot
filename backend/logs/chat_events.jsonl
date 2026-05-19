@@ -1,0 +1,3 @@
+{"question": "where to find EAP ?", "role": "employee", "status": "success", "model": "GroqLLM", "latency_ms": 2309.72, "source_count": 3, "source_departments": ["general"], "guardrail_reason": "", "error": "", "timestamp": "2026-05-19T20:48:59.105555+00:00"}
+{"question": "hello", "role": "employee", "status": "success", "model": "GroqLLM", "latency_ms": 172.48, "source_count": 0, "source_departments": [], "guardrail_reason": "", "error": "", "timestamp": "2026-05-19T20:49:57.237013+00:00"}
+{"question": "where is my tshirt", "role": "employee", "status": "success", "model": "GroqLLM", "latency_ms": 262.21, "source_count": 0, "source_departments": [], "guardrail_reason": "", "error": "", "timestamp": "2026-05-19T20:50:03.595205+00:00"}

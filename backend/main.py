@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from time import perf_counter
 from functools import lru_cache
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.src.guardrails import GuardrailResult, check_input_guardrails, check_output_guardrails
-from backend.src.monitoring import log_guardrail_event
+from backend.src.monitoring import MonitoringMetrics, get_monitoring_metrics, log_chat_event, log_guardrail_event
 from backend.src.rag_chain import ChatHistoryMessage
 from backend.src.rag_service import RAGService, build_rag_service, get_index_status
 
@@ -40,6 +41,19 @@ class StatusResponse(BaseModel):
     collection_name: str
 
 
+class MetricsResponse(BaseModel):
+    total_chats: int
+    successful_chats: int
+    blocked_chats: int
+    errored_chats: int
+    average_latency_ms: float
+    average_source_count: float
+    roles: dict[str, int]
+    guardrail_reasons: dict[str, int]
+    source_departments: dict[str, int]
+    recent_events: list[dict]
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -60,12 +74,18 @@ def status() -> StatusResponse:
     )
 
 
+@app.get("/metrics", response_model=MetricsResponse)
+def metrics() -> MonitoringMetrics:
+    return get_monitoring_metrics()
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
+    started_at = perf_counter()
     try:
         guardrail_result = check_input_guardrails(request.question)
         if not guardrail_result.allowed:
-            return _guardrail_response(request, guardrail_result)
+            return _guardrail_response(request, guardrail_result, _latency_ms(started_at))
 
         rag_service = get_rag_service()
         response = rag_service.rag_chain.answer_question(
@@ -76,11 +96,24 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
         output_guardrail_result = check_output_guardrails(response.answer)
         if not output_guardrail_result.allowed:
-            return _guardrail_response(request, output_guardrail_result)
+            return _guardrail_response(request, output_guardrail_result, _latency_ms(started_at))
     except ValueError as exc:
+        _log_error_chat_event(request, str(exc), _latency_ms(started_at))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
+        _log_error_chat_event(request, str(exc), _latency_ms(started_at))
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    source_departments = _source_departments(response.sources)
+    log_chat_event(
+        question=request.question,
+        role=request.role,
+        status="success",
+        model=response.model,
+        latency_ms=_latency_ms(started_at),
+        source_count=len(response.sources),
+        source_departments=source_departments,
+    )
 
     return ChatResponse(
         answer=response.answer,
@@ -96,7 +129,11 @@ def chat(request: ChatRequest) -> ChatResponse:
     )
 
 
-def _guardrail_response(request: ChatRequest, result: GuardrailResult) -> ChatResponse:
+def _guardrail_response(
+    request: ChatRequest,
+    result: GuardrailResult,
+    latency_ms: float,
+) -> ChatResponse:
     log_guardrail_event(
         question=request.question,
         role=request.role,
@@ -104,6 +141,14 @@ def _guardrail_response(request: ChatRequest, result: GuardrailResult) -> ChatRe
         stage=result.stage,
         intent=result.intent.value,
         message=result.message,
+    )
+    log_chat_event(
+        question=request.question,
+        role=request.role,
+        status="blocked",
+        model=f"Guardrails:{result.reason}",
+        latency_ms=latency_ms,
+        guardrail_reason=result.reason,
     )
 
     return ChatResponse(
@@ -117,6 +162,30 @@ def _guardrail_response(request: ChatRequest, result: GuardrailResult) -> ChatRe
             "intent": result.intent.value,
         },
     )
+
+
+def _log_error_chat_event(request: ChatRequest, error: str, latency_ms: float) -> None:
+    log_chat_event(
+        question=request.question,
+        role=request.role,
+        status="error",
+        model="",
+        latency_ms=latency_ms,
+        error=error,
+    )
+
+
+def _source_departments(sources: list[dict]) -> list[str]:
+    departments = []
+    for source in sources:
+        department = source.get("metadata", {}).get("department")
+        if department and department not in departments:
+            departments.append(department)
+    return departments
+
+
+def _latency_ms(started_at: float) -> float:
+    return (perf_counter() - started_at) * 1000
 
 
 @lru_cache(maxsize=1)
