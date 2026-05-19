@@ -147,7 +147,7 @@ async function scrollToBottom() {
 
     <div ref="messageList" class="conversation" :class="{ empty: !hasConversation }" aria-live="polite">
       <div v-if="!hasConversation" class="assistant-home">
-        <h2>What can I help you with?</h2>
+        <h2>What are you working on?</h2>
 
         <form class="prompt-shell" @submit.prevent="submitQuestion">
           <button class="prompt-icon" type="button" title="Add context">
@@ -156,7 +156,7 @@ async function scrollToBottom() {
           <textarea
             v-model="question"
             rows="1"
-            placeholder="Ask about company policies, benefits, reports, or handbooks"
+            placeholder="Ask anything"
             @keydown.enter.exact.prevent="submitQuestion"
           />
           <span class="mode-pill">Internal RAG</span>
@@ -247,9 +247,9 @@ async function scrollToBottom() {
 <style scoped>
 .assistant-screen {
   position: relative;
-  display: grid;
-  min-height: calc(100vh - 132px);
-  grid-template-rows: 1fr auto auto;
+  display: flex;
+  min-height: calc(100vh - 64px);
+  flex-direction: column;
   color: var(--text, #172033);
 }
 
@@ -269,49 +269,54 @@ async function scrollToBottom() {
 }
 
 .conversation {
+  flex: 1;
   overflow-y: auto;
   padding: 10px 8px 26px;
   scroll-behavior: smooth;
 }
 
 .conversation.empty {
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   overflow: visible;
-  padding-bottom: 120px;
+  padding: 0 0 13vh;
 }
 
 .assistant-home {
-  display: grid;
-  width: min(960px, 100%);
-  gap: 26px;
-  justify-items: center;
+  display: flex;
+  width: min(960px, 92%);
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
   animation: riseIn 220ms ease both;
 }
 
 .assistant-home h2 {
   margin: 0;
   color: var(--heading, #111827);
-  font-size: clamp(30px, 4vw, 40px);
-  font-weight: 520;
+  font-size: clamp(30px, 3.4vw, 38px);
+  font-weight: 430;
   letter-spacing: 0;
+  text-align: center;
 }
 
 .prompt-shell {
-  display: grid;
+  display: flex;
   width: min(960px, 100%);
-  grid-template-columns: 42px minmax(0, 1fr) auto 50px;
-  gap: 10px;
   align-items: center;
-  border: 1px solid var(--border, #d8dee7);
+  gap: 12px;
+  min-height: 84px;
+  border: 1px solid var(--composer-border, #d8dee7);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--surface) 88%, var(--surface-soft));
-  padding: 10px 12px;
+  background: var(--composer-bg, #ffffff);
+  padding: 10px 14px 10px 20px;
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.1);
 }
 
 .prompt-shell.sticky {
-  justify-self: center;
+  width: min(860px, 92%);
+  margin: 0 auto 22px;
 }
 
 .prompt-icon,
@@ -324,6 +329,7 @@ async function scrollToBottom() {
 }
 
 .prompt-icon {
+  flex: 0 0 42px;
   width: 40px;
   height: 40px;
   background: transparent;
@@ -331,8 +337,10 @@ async function scrollToBottom() {
 }
 
 textarea {
+  flex: 1 1 auto;
   width: 100%;
-  min-height: 34px;
+  min-width: 0;
+  min-height: 32px;
   max-height: 130px;
   resize: none;
   border: 0;
@@ -345,12 +353,14 @@ textarea {
 }
 
 .mode-pill {
+  flex: 0 0 auto;
   color: var(--muted, #64748b);
   font-size: 14px;
   white-space: nowrap;
 }
 
 .send-button {
+  flex: 0 0 42px;
   width: 42px;
   height: 42px;
   background: var(--heading, #111827);
@@ -538,12 +548,13 @@ textarea {
 
 @media (max-width: 760px) {
   .assistant-screen {
-    min-height: calc(100vh - 96px);
+    min-height: calc(100vh - 76px);
   }
 
   .prompt-shell {
-    grid-template-columns: 38px minmax(0, 1fr) 44px;
+    min-height: 70px;
     border-radius: 24px;
+    padding-left: 12px;
   }
 
   .mode-pill {

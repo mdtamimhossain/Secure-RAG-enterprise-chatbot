@@ -269,19 +269,18 @@ onMounted(async () => {
       </div>
     </aside>
 
-    <main class="main-area">
+    <main class="main-area" :class="{ 'assistant-main': activeView === 'assistant' }">
       <header class="topbar" :class="{ 'assistant-topbar': activeView === 'assistant' }">
-        <button class="theme-icon-button" type="button" :title="isDarkMode ? 'Light mode' : 'Dark mode'" @click="toggleTheme">
-          <Sun v-if="isDarkMode" :size="18" aria-hidden="true" />
-          <Moon v-else :size="18" aria-hidden="true" />
-        </button>
         <div v-if="activeView !== 'assistant'">
-          <p class="eyebrow">Codemars Intranet</p>
           <h1>{{ activeProfile.label }} AI Knowledge Assistant</h1>
           <span class="topbar-subtitle">
             Role-aware search across company documents, policies, and internal knowledge.
           </span>
         </div>
+        <button class="theme-icon-button" type="button" :title="isDarkMode ? 'Light mode' : 'Dark mode'" @click="toggleTheme">
+          <Sun v-if="isDarkMode" :size="18" aria-hidden="true" />
+          <Moon v-else :size="18" aria-hidden="true" />
+        </button>
       </header>
 
       <section v-if="activeView === 'workspace'" class="dashboard-hero view-enter">
@@ -618,6 +617,8 @@ input {
   --muted: #64748b;
   --muted-strong: #1e3a8a;
   --soft-shadow: 0 16px 42px rgba(15, 23, 42, 0.08);
+  --composer-bg: #ffffff;
+  --composer-border: #d8dee7;
   display: grid;
   min-height: 100vh;
   grid-template-columns: 268px minmax(0, 1fr);
@@ -638,6 +639,8 @@ input {
   --muted: #9aa7ba;
   --muted-strong: #bfdbfe;
   --soft-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+  --composer-bg: #242424;
+  --composer-border: #343434;
 }
 
 .sidebar {
@@ -843,10 +846,15 @@ nav button.active {
   padding: 24px;
 }
 
+.main-area.assistant-main {
+  min-height: 100vh;
+  padding: 22px 28px 0;
+}
+
 .topbar {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: space-between;
   gap: 14px;
   margin-bottom: 20px;
   border: 1px solid var(--border);
@@ -858,6 +866,7 @@ nav button.active {
 }
 
 .topbar.assistant-topbar {
+  justify-content: flex-end;
   border: 0;
   background: transparent;
   margin-bottom: 0;
