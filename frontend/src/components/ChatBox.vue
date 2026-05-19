@@ -436,7 +436,8 @@ textarea {
 }
 
 .message-row.user .message-content {
-  width: min(680px, 92%);
+  width: fit-content;
+  max-width: min(680px, 72%);
   border: 1px solid var(--border, #d8dee7);
   border-radius: 22px;
   background: var(--surface-soft, #f8fbff);

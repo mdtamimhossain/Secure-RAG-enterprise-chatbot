@@ -20,6 +20,7 @@ from backend.src.rag_chain import (
     build_rag_prompt,
     create_llm_client,
     generate_llm_answer,
+    parse_source_usage,
 )
 from backend.src.retriever import Retriever
 from backend.src.vector_store import ChromaVectorStore
@@ -64,16 +65,30 @@ class RagChainTests(unittest.TestCase):
 
         self.assertIn("casual conversation", prompt)
         self.assertIn("Do not mention missing documents for casual chat", prompt)
+        self.assertIn("SOURCE_USAGE: casual", prompt)
         self.assertIn("No retrieved context.", prompt)
 
     def test_prompt_tells_llm_to_use_context_for_company_questions(self) -> None:
         prompt = build_rag_prompt("What is the leave policy?", sources=[])
 
         self.assertIn("answer only using", prompt)
+        self.assertIn("SOURCE_USAGE: context", prompt)
         self.assertIn("I could not find specific information", prompt)
 
+    def test_parse_source_usage_hides_sources_for_casual_answer(self) -> None:
+        answer, show_sources = parse_source_usage("SOURCE_USAGE: casual\nHello there.")
+
+        self.assertEqual(answer, "Hello there.")
+        self.assertFalse(show_sources)
+
+    def test_parse_source_usage_shows_sources_for_context_answer(self) -> None:
+        answer, show_sources = parse_source_usage("SOURCE_USAGE: context\nEmployees get benefits.")
+
+        self.assertEqual(answer, "Employees get benefits.")
+        self.assertTrue(show_sources)
+
     def test_rag_chain_sends_greeting_and_empty_context_to_llm(self) -> None:
-        llm = FakeLLM(response="Hi. How can I help?")
+        llm = FakeLLM(response="SOURCE_USAGE: casual\nHi. How can I help?")
         rag_chain = RAGChain(EmptyRetriever(), llm)
 
         response = rag_chain.answer_question("hello", role="employee")
@@ -97,7 +112,7 @@ class RagChainTests(unittest.TestCase):
             )
         ]
         embedded_chunks = embed_chunks(chunks, model)
-        llm = FakeLLM(response="Employees can read the internal company handbook.")
+        llm = FakeLLM(response="SOURCE_USAGE: context\nEmployees can read the internal company handbook.")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             store = ChromaVectorStore(temp_dir, collection_name="test_rag_chain")
@@ -133,7 +148,10 @@ class RagChainTests(unittest.TestCase):
         ]
         embedded_chunks = embed_chunks(chunks, model)
         llm = FakeLLM(
-            response="I could not find specific information about that in your available company documents."
+            response=(
+                "SOURCE_USAGE: none\n"
+                "I could not find specific information about that in your available company documents."
+            )
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:

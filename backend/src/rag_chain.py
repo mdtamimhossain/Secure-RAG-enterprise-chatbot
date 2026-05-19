@@ -68,7 +68,8 @@ class GroqLLM:
                     "role": "system",
                     "content": (
                         "You are a secure internal company assistant. "
-                        "Answer only from the provided context."
+                        "Follow the response policy in the user prompt. "
+                        "Do not invent company information."
                     ),
                 },
                 {"role": "user", "content": prompt},
@@ -122,7 +123,8 @@ class OpenAILLM:
             "model": self.model,
             "instructions": (
                 "You are a secure internal company assistant. "
-                "Answer only from the provided context."
+                "Follow the response policy in the user prompt. "
+                "Do not invent company information."
             ),
             "input": prompt,
         }
@@ -203,12 +205,30 @@ class RAGChain:
         sources = self.retriever.retrieve(question, role=role, top_k=top_k)
         prompt = build_rag_prompt(question=question, sources=sources)
         llm_response = generate_llm_answer(prompt, self.llm_client)
+        answer, should_show_sources = parse_source_usage(llm_response.answer)
 
         return RAGResponse(
-            answer=llm_response.answer,
-            sources=sources,
+            answer=answer,
+            sources=sources if should_show_sources else [],
             model=llm_response.model,
         )
+
+
+def parse_source_usage(answer: str) -> tuple[str, bool]:
+    """Read the LLM source-usage marker and remove it from the visible answer."""
+
+    lines = answer.strip().splitlines()
+    if not lines:
+        return "", False
+
+    first_line = lines[0].strip()
+    marker_prefix = "source_usage:"
+    if first_line.lower().startswith(marker_prefix):
+        usage = first_line.split(":", 1)[1].strip().lower()
+        visible_answer = "\n".join(lines[1:]).strip()
+        return visible_answer, usage == "context"
+
+    return answer.strip(), True
 
 
 def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:
@@ -236,6 +256,13 @@ def build_rag_prompt(question: str, sources: list[dict[str, Any]]) -> str:
         "4. Do not invent company policies, benefits, finance data, or employee information.\n"
         "5. The context was already filtered by backend RBAC. Never suggest that the "
         "user can access documents outside this context.\n\n"
+        "Source display rule:\n"
+        "Start your answer with exactly one hidden routing line:\n"
+        "- SOURCE_USAGE: casual  -> for greetings, thanks, or casual conversation\n"
+        "- SOURCE_USAGE: context -> when your answer uses retrieved company context\n"
+        "- SOURCE_USAGE: none    -> when the user asks a company question but the "
+        "context does not contain the answer\n"
+        "After that first line, write the user-facing answer.\n\n"
         f"Retrieved context:\n{context}\n\n"
         f"User message:\n{question}\n\n"
         "Answer:"
