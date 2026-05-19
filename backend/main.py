@@ -5,6 +5,7 @@ from functools import lru_cache
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.src.guardrails import check_guardrails
 from backend.src.rag_service import RAGService, build_rag_service, get_index_status
 
 
@@ -58,6 +59,15 @@ def status() -> StatusResponse:
 @app.post("/chat", response_model=ChatResponse)
 def chat(request: ChatRequest) -> ChatResponse:
     try:
+        guardrail_result = check_guardrails(request.question)
+        if not guardrail_result.allowed:
+            return ChatResponse(
+                answer=guardrail_result.message,
+                role=request.role,
+                model=f"Guardrails:{guardrail_result.reason}",
+                sources=[],
+            )
+
         rag_service = get_rag_service()
         response = rag_service.rag_chain.answer_question(
             question=request.question,
