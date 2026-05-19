@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,45 @@ class ChromaVectorStore:
 
         return _format_results(results)
 
+    def keyword_search(
+        self,
+        query: str,
+        top_k: int = 3,
+        where: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        if top_k <= 0:
+            raise ValueError("top_k must be greater than 0")
+        if not query.strip():
+            return []
+
+        results = self.collection.get(
+            where=where,
+            include=["documents", "metadatas"],
+        )
+        query_terms = _tokenize(query)
+        scored_results = []
+
+        ids = results.get("ids", [])
+        documents = results.get("documents", [])
+        metadatas = results.get("metadatas", [])
+        for index, chunk_id in enumerate(ids):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            content = documents[index] if index < len(documents) else ""
+            score = _keyword_score(query_terms, content, metadata)
+            if score <= 0:
+                continue
+            scored_results.append(
+                {
+                    "id": chunk_id,
+                    "content": content,
+                    "metadata": metadata,
+                    "distance": None,
+                    "keyword_score": score,
+                }
+            )
+
+        return sorted(scored_results, key=lambda result: result["keyword_score"], reverse=True)[:top_k]
+
     def close(self) -> None:
         """Release Chroma resources before deleting a temporary persist folder."""
 
@@ -92,3 +132,48 @@ def _format_results(results: dict[str, Any]) -> list[dict[str, Any]]:
         )
 
     return formatted_results
+
+
+def _tokenize(text: str) -> list[str]:
+    stop_words = {
+        "a",
+        "an",
+        "and",
+        "are",
+        "at",
+        "be",
+        "can",
+        "does",
+        "for",
+        "how",
+        "is",
+        "of",
+        "on",
+        "the",
+        "to",
+        "what",
+        "with",
+    }
+    return [
+        token
+        for token in re.findall(r"[a-z0-9]+", text.lower())
+        if len(token) > 2 and token not in stop_words
+    ]
+
+
+def _keyword_score(query_terms: list[str], content: str, metadata: dict[str, Any]) -> float:
+    if not query_terms:
+        return 0
+
+    content_text = content.lower()
+    metadata_text = " ".join(
+        str(metadata.get(field, "")).lower()
+        for field in ("filename", "department", "category", "relative_path")
+    )
+    score = 0.0
+    for term in query_terms:
+        if term in content_text:
+            score += 1.0
+        if term in metadata_text:
+            score += 2.0
+    return score

@@ -83,6 +83,42 @@ class VectorStoreTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["metadata"]["department"], "finance")
 
+    def test_keyword_search_scores_content_and_metadata(self) -> None:
+        model = HashEmbeddingModel(dimensions=8)
+        chunks = [
+            DocumentChunk(
+                content="General handbook for employees.",
+                metadata={"chunk_id": "general-0", "department": "general", "filename": "handbook.md"},
+            ),
+            DocumentChunk(
+                content="Approved expenses can be reimbursed with receipts.",
+                metadata={
+                    "chunk_id": "finance-0",
+                    "department": "finance",
+                    "filename": "codemars_finance_expense_reimbursement_policy.md",
+                    "category": "expense_policy",
+                },
+            ),
+        ]
+        embedded_chunks = embed_chunks(chunks, model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ChromaVectorStore(temp_dir, collection_name="test_keyword_documents")
+            try:
+                store.add_chunks(embedded_chunks)
+
+                results = store.keyword_search(
+                    "expense reimbursement",
+                    top_k=2,
+                    where={"department": "finance"},
+                )
+            finally:
+                store.close()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["metadata"]["department"], "finance")
+        self.assertGreater(results[0]["keyword_score"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

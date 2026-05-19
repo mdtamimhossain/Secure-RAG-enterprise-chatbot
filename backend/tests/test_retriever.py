@@ -61,6 +61,50 @@ class RetrieverTests(unittest.TestCase):
 
         self.assertEqual(results, [])
 
+    def test_hybrid_retrieval_uses_keyword_match_with_rbac(self) -> None:
+        model = HashEmbeddingModel(dimensions=8)
+        chunks = [
+            DocumentChunk(
+                content="General workplace norms and tools.",
+                metadata={"chunk_id": "general-0", "department": "general", "filename": "handbook.md"},
+            ),
+            DocumentChunk(
+                content="Approved expenses can be reimbursed with receipts and manager approval.",
+                metadata={
+                    "chunk_id": "finance-0",
+                    "department": "finance",
+                    "filename": "codemars_finance_expense_reimbursement_policy.md",
+                    "category": "expense_policy",
+                },
+            ),
+        ]
+        embedded_chunks = embed_chunks(chunks, model)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            store = ChromaVectorStore(temp_dir, collection_name="test_hybrid_retriever")
+            try:
+                store.add_chunks(embedded_chunks)
+                retriever = Retriever(store, model)
+
+                employee_results = retriever.retrieve(
+                    "What expenses can be reimbursed?",
+                    role="employee",
+                    top_k=3,
+                )
+                finance_results = retriever.retrieve(
+                    "What expenses can be reimbursed?",
+                    role="finance",
+                    top_k=3,
+                )
+            finally:
+                store.close()
+
+        employee_departments = {result["metadata"]["department"] for result in employee_results}
+        finance_departments = {result["metadata"]["department"] for result in finance_results}
+
+        self.assertNotIn("finance", employee_departments)
+        self.assertIn("finance", finance_departments)
+
 
 if __name__ == "__main__":
     unittest.main()
