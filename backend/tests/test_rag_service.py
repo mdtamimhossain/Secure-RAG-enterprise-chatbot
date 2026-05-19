@@ -10,10 +10,30 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.src.rag_service import RAGServiceSettings, build_rag_service
+from backend.src.rag_service import RAGServiceSettings, build_rag_service, get_index_status
 
 
 class RAGServiceTests(unittest.TestCase):
+    def test_get_index_status_does_not_build_llm_or_vector_store(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            data_dir = root / "data"
+            doc_path = data_dir / "general" / "handbook.md"
+            doc_path.parent.mkdir(parents=True)
+            doc_path.write_text("Employees can read company policies.", encoding="utf-8")
+
+            status = get_index_status(
+                RAGServiceSettings(
+                    data_dir=data_dir,
+                    persist_dir=root / "unused",
+                    collection_name="test_status_only",
+                )
+            )
+
+        self.assertEqual(status.document_count, 1)
+        self.assertEqual(status.chunk_count, 1)
+        self.assertEqual(status.collection_name, "test_status_only")
+
     def test_build_rag_service_indexes_documents(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

@@ -28,6 +28,13 @@ class RAGService:
     collection_name: str
 
 
+@dataclass(frozen=True)
+class RAGIndexStatus:
+    document_count: int
+    chunk_count: int
+    collection_name: str
+
+
 def default_rag_settings() -> RAGServiceSettings:
     backend_dir = Path(__file__).resolve().parents[1]
     return RAGServiceSettings(
@@ -65,5 +72,19 @@ def build_rag_service(
         document_count=len(documents),
         chunk_count=len(chunks),
         persist_dir=settings.persist_dir,
+        collection_name=settings.collection_name,
+    )
+
+
+def get_index_status(settings: RAGServiceSettings | None = None) -> RAGIndexStatus:
+    """Return index counts without initializing embeddings, vector DB, or LLM clients."""
+
+    settings = settings or default_rag_settings()
+    documents = load_documents(settings.data_dir)
+    chunks = chunk_documents(documents)
+
+    return RAGIndexStatus(
+        document_count=len(documents),
+        chunk_count=len(chunks),
         collection_name=settings.collection_name,
     )

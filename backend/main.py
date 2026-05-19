@@ -5,7 +5,7 @@ from functools import lru_cache
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.src.rag_service import RAGService, build_rag_service
+from backend.src.rag_service import RAGService, build_rag_service, get_index_status
 
 
 app = FastAPI(title="Secure Enterprise RAG Chatbot API")
@@ -43,15 +43,15 @@ def health() -> dict[str, str]:
 @app.get("/status", response_model=StatusResponse)
 def status() -> StatusResponse:
     try:
-        rag_service = get_rag_service()
+        index_status = get_index_status()
     except (RuntimeError, ValueError) as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return StatusResponse(
         status="ready",
-        document_count=rag_service.document_count,
-        chunk_count=rag_service.chunk_count,
-        collection_name=rag_service.collection_name,
+        document_count=index_status.document_count,
+        chunk_count=index_status.chunk_count,
+        collection_name=index_status.collection_name,
     )
 
 
