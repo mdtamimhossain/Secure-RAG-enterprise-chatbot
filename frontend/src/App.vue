@@ -847,7 +847,9 @@ nav button.active {
 }
 
 .main-area.assistant-main {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
   padding: 22px 28px 0;
 }
 
@@ -1166,7 +1168,10 @@ h1 {
 }
 
 .assistant-page {
-  min-height: calc(100vh - 132px);
+  display: flex;
+  height: calc(100vh - 64px);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .workspace-panel {
@@ -1179,10 +1184,18 @@ h1 {
 }
 
 .assistant-page .workspace-panel {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex: 1;
   border: 0;
   background: transparent;
   padding: 0;
   box-shadow: none;
+}
+
+.assistant-page .chat-wrap {
+  min-width: 0;
 }
 
 .sources-wrap {

@@ -248,15 +248,34 @@ async function scrollToBottom() {
 .assistant-screen {
   position: relative;
   display: flex;
-  min-height: calc(100vh - 64px);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
+  overflow: hidden;
   color: var(--text, #172033);
+}
+
+.assistant-screen::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 118px;
+  pointer-events: none;
+  content: '';
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--app-bg, #0b1020) 0%, transparent),
+    var(--app-bg, #0b1020) 54%
+  );
+  z-index: 3;
 }
 
 .clear-chat {
   position: absolute;
-  top: 0;
-  right: 0;
+  top: 2px;
+  left: 0;
   z-index: 2;
   border: 1px solid var(--border, #d8dee7);
   border-radius: 999px;
@@ -269,9 +288,10 @@ async function scrollToBottom() {
 }
 
 .conversation {
+  min-height: 0;
   flex: 1;
   overflow-y: auto;
-  padding: 10px 8px 26px;
+  padding: 54px 8px 136px;
   scroll-behavior: smooth;
 }
 
@@ -280,7 +300,7 @@ async function scrollToBottom() {
   align-items: center;
   justify-content: center;
   overflow: visible;
-  padding: 0 0 13vh;
+  padding: 0 0 12vh;
 }
 
 .assistant-home {
@@ -305,18 +325,23 @@ async function scrollToBottom() {
   display: flex;
   width: min(960px, 100%);
   align-items: center;
-  gap: 12px;
-  min-height: 84px;
+  gap: 10px;
+  min-height: 60px;
   border: 1px solid var(--composer-border, #d8dee7);
   border-radius: 999px;
   background: var(--composer-bg, #ffffff);
-  padding: 10px 14px 10px 20px;
+  padding: 7px 10px 7px 16px;
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.1);
 }
 
 .prompt-shell.sticky {
+  position: absolute;
+  right: 50%;
+  bottom: 18px;
+  z-index: 5;
   width: min(860px, 92%);
-  margin: 0 auto 22px;
+  margin: 0;
+  transform: translateX(50%);
 }
 
 .prompt-icon,
@@ -329,9 +354,9 @@ async function scrollToBottom() {
 }
 
 .prompt-icon {
-  flex: 0 0 42px;
-  width: 40px;
-  height: 40px;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
   background: transparent;
   color: var(--text, #172033);
 }
@@ -340,7 +365,7 @@ textarea {
   flex: 1 1 auto;
   width: 100%;
   min-width: 0;
-  min-height: 32px;
+  min-height: 26px;
   max-height: 130px;
   resize: none;
   border: 0;
@@ -360,9 +385,9 @@ textarea {
 }
 
 .send-button {
-  flex: 0 0 42px;
-  width: 42px;
-  height: 42px;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
   background: var(--heading, #111827);
   color: var(--surface, #ffffff);
 }
@@ -548,11 +573,12 @@ textarea {
 
 @media (max-width: 760px) {
   .assistant-screen {
-    min-height: calc(100vh - 76px);
+    height: 100%;
+    min-height: 0;
   }
 
   .prompt-shell {
-    min-height: 70px;
+    min-height: 56px;
     border-radius: 24px;
     padding-left: 12px;
   }
