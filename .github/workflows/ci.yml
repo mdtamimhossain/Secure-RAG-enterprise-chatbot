@@ -44,3 +44,15 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Build backend Docker image
+        run: docker build --file backend/Dockerfile --tag codemars-rag-backend .
+
+      - name: Build frontend Docker image
+        run: docker build --file frontend/Dockerfile --tag codemars-rag-frontend .
