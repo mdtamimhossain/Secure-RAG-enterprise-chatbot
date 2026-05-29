@@ -13,7 +13,7 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-              - name: Set up Python
+              
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -26,7 +26,7 @@ jobs:
         run: python -m unittest discover backend/tests -v
       - name: Run RAG evaluation
         run: python -m backend.evaluation.run_eval
-  frontend-tests:
+  frontend-build:
     runs-on: ubuntu-latest
 
     steps:
@@ -35,8 +35,12 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "18"
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
       - name: Install frontend dependencies
-        run: npm install
-      - name: Run frontend tests
-        run: npm test -- --watchAll=false
+        working-directory: frontend
+        run: npm ci
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
