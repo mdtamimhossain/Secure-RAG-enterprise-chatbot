@@ -56,3 +56,81 @@ jobs:
 
       - name: Build frontend Docker image
         run: docker build --file frontend/Dockerfile --tag codemars-rag-frontend .
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-build, docker-build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        run: |
+          docker build --file backend/Dockerfile --tag ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/rag-chatbot-backend:latest .
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/rag-chatbot-backend:latest
+
+      - name: Build and push frontend image
+        run: |
+          docker build --file frontend/Dockerfile --tag ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/rag-chatbot-frontend:latest .
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/rag-chatbot-frontend:latest
+
+      - name: Prepare SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+
+      - name: Deploy to EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            set -e
+
+            AWS_REGION="${{ secrets.AWS_REGION }}"
+            AWS_ACCOUNT_ID="${{ secrets.AWS_ACCOUNT_ID }}"
+            BACKEND_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/rag-chatbot-backend:latest"
+            FRONTEND_IMAGE="$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/rag-chatbot-frontend:latest"
+
+            aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
+            docker pull "$BACKEND_IMAGE"
+            docker pull "$FRONTEND_IMAGE"
+
+            docker network create rag-network || true
+
+            docker stop backend rag-chatbot-backend frontend || true
+            docker rm backend rag-chatbot-backend frontend || true
+
+            docker run -d \
+              --name backend \
+              --restart unless-stopped \
+              --network rag-network \
+              -p 8000:8000 \
+              -e LLM_PROVIDER=groq \
+              -e GROQ_API_KEY="${{ secrets.GROQ_API_KEY }}" \
+              -e GROQ_MODEL=llama-3.1-8b-instant \
+              -e EMBEDDING_PROVIDER=hash \
+              "$BACKEND_IMAGE"
+
+            docker run -d \
+              --name frontend \
+              --restart unless-stopped \
+              --network rag-network \
+              -p 80:80 \
+              "$FRONTEND_IMAGE"
+
+            sleep 5
+            curl --fail http://localhost:8000/health
+            curl --fail http://localhost/api/health
+          EOF

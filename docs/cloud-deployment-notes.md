@@ -3,7 +3,7 @@
 Project: Secure Enterprise RAG Chatbot / Codemars Intranet
 
 This document records the cloud deployment learning path from Docker setup to
-AWS EC2 deployment preparation.
+AWS EC2 deployment and the next CI/CD automation phase.
 
 ---
 
@@ -589,6 +589,12 @@ Create repository:
 aws ecr create-repository --repository-name rag-chatbot-backend --region eu-central-1
 ```
 
+Create frontend repository:
+
+```powershell
+aws ecr create-repository --repository-name rag-chatbot-frontend --region eu-central-1
+```
+
 Repository ARN:
 
 ```text
@@ -599,6 +605,7 @@ Image URI:
 
 ```text
 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
+281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
 ```
 
 Login Docker to ECR:
@@ -617,6 +624,14 @@ Push image:
 
 ```powershell
 docker push 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
+```
+
+Frontend build, tag, and push:
+
+```powershell
+docker build --file frontend/Dockerfile --tag rag-chatbot-frontend .
+docker tag rag-chatbot-frontend:latest 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
+docker push 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
 ```
 
 Common error:
@@ -767,31 +782,166 @@ Completed:
 - GitHub Actions CI works
 - Docker build checks run in CI
 - AWS CLI configured for new account
-- ECR repo created
+- backend and frontend ECR repos created
 - backend image pushed to ECR
+- frontend image pushed to ECR
 - EC2 Ubuntu instance running
 - SSH access works
 - Docker installed on EC2
 - EC2 IAM role attached for ECR read-only access
+- backend image pulled and running on EC2
+- backend `/health` works inside EC2
+- backend `/docs` is accessible from public browser
+- frontend image pulled and running on EC2
+- frontend is accessible from public browser
+- frontend nginx forwards `/api/*` to backend
 
-Current ECR image:
+Current ECR images:
 
 ```text
 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
+281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
 ```
 
-Next step:
+Current public checks:
 
 ```text
-SSH into EC2
-login/pull image from ECR using EC2 IAM role
-run backend container
-test public EC2 URL on port 8000
+Backend API docs:
+http://13.49.241.90:8000/docs
+
+Frontend app:
+http://13.49.241.90
+```
+
+Current EC2 container architecture:
+
+```text
+Browser
+  -> EC2 public IP on port 80
+  -> frontend nginx container
+  -> /api/* proxy
+  -> backend FastAPI container on port 8000
+```
+
+Important Docker networking lesson:
+
+The frontend nginx config uses:
+
+```nginx
+proxy_pass http://backend:8000/;
+```
+
+So the frontend container must be able to resolve `backend` inside Docker.
+This can be done by naming the backend container `backend`, or by connecting
+the existing backend container to the frontend network with the alias
+`backend`.
+
+Example:
+
+```bash
+docker network create rag-network
+docker network connect --alias backend rag-network rag-chatbot-backend
+docker run -d \
+  --name frontend \
+  --restart unless-stopped \
+  --network rag-network \
+  -p 80:80 \
+  281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
+```
+
+Test from EC2:
+
+```bash
+curl http://localhost:8000/health
+curl http://localhost/api/health
+```
+
+Expected:
+
+```json
+{"status":"ok"}
 ```
 
 ---
 
-## 16. Useful Cleanup Commands
+## 16. Next Process: CI/CD Deployment
+
+Current deployment is manual:
+
+```text
+Local build
+  -> docker tag
+  -> docker push to ECR
+  -> SSH into EC2
+  -> docker pull
+  -> restart containers
+```
+
+The next goal is automatic deployment:
+
+```text
+git push to master
+  -> GitHub Actions runs tests
+  -> builds backend and frontend Docker images
+  -> logs in to AWS ECR
+  -> pushes images to ECR
+  -> connects to EC2 over SSH
+  -> pulls latest images
+  -> restarts containers
+  -> verifies health endpoint
+```
+
+Why this matters:
+
+- This is the standard CI/CD pattern used in real projects.
+- Developers deploy by pushing code, not by manually running server commands.
+- Tests protect the deployment from broken code.
+- ECR stores versioned deployable images.
+- EC2 runs the latest approved image.
+
+Required GitHub secrets:
+
+```text
+AWS_ACCESS_KEY_ID
+AWS_SECRET_ACCESS_KEY
+AWS_REGION
+AWS_ACCOUNT_ID
+EC2_HOST
+EC2_USER
+EC2_SSH_KEY
+GROQ_API_KEY
+```
+
+Recommended values:
+
+```text
+AWS_REGION=eu-central-1
+AWS_ACCOUNT_ID=281639842123
+EC2_USER=ubuntu
+EC2_HOST=current EC2 public IPv4 address
+```
+
+Important:
+
+If the EC2 instance is stopped and started again, the public IPv4 address may
+change unless an Elastic IP is attached. When that happens, update `EC2_HOST`
+in GitHub secrets.
+
+High-level workflow jobs to add later:
+
+```text
+1. backend-tests
+2. frontend-build
+3. docker-build
+4. deploy-to-ec2
+```
+
+The current CI already has the first three learning pieces. The next work is
+adding AWS login, ECR push, and EC2 restart commands.
+
+---
+
+## 17. Useful Cleanup Commands
 
 Stop local Compose:
 
@@ -821,6 +971,7 @@ Delete ECR repository:
 
 ```powershell
 aws ecr delete-repository --repository-name rag-chatbot-backend --region eu-central-1 --force
+aws ecr delete-repository --repository-name rag-chatbot-frontend --region eu-central-1 --force
 ```
 
 Warning:
@@ -829,7 +980,7 @@ Deleting ECR repository removes stored images.
 
 ---
 
-## 17. Cost Safety Notes
+## 18. Cost Safety Notes
 
 Always set budget alerts.
 
@@ -848,4 +999,3 @@ Recommended:
 - delete unused ECR images
 - keep instance size free-tier eligible
 - avoid load balancers until you understand cost
-
