@@ -16,6 +16,10 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  sessionToken: {
+    type: String,
+    required: true,
+  },
 })
 
 const question = ref('')
@@ -69,6 +73,7 @@ async function submitQuestion() {
       question: currentQuestion,
       role: props.role,
       history: chatHistory,
+      sessionToken: props.sessionToken,
     })
 
     messages.value.push({

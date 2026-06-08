@@ -3,9 +3,10 @@ from __future__ import annotations
 from time import perf_counter
 from functools import lru_cache
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from backend.src.auth import DemoSession, create_demo_session, get_demo_session
 from backend.src.guardrails import GuardrailResult, check_input_guardrails, check_output_guardrails
 from backend.src.monitoring import MonitoringMetrics, get_monitoring_metrics, log_chat_event, log_guardrail_event
 from backend.src.rag_chain import ChatHistoryMessage
@@ -19,6 +20,17 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
     role: str = "employee"
     history: list[ChatHistoryMessage] = Field(default_factory=list)
+
+
+class LoginRequest(BaseModel):
+    name: str = Field(..., min_length=1)
+    role: str = "employee"
+
+
+class LoginResponse(BaseModel):
+    session_token: str
+    name: str
+    role: str
 
 
 class SourceResponse(BaseModel):
@@ -82,35 +94,54 @@ def metrics() -> MonitoringMetrics:
     return get_monitoring_metrics()
 
 
+@app.post("/login", response_model=LoginResponse)
+def login(request: LoginRequest) -> LoginResponse:
+    try:
+        session = create_demo_session(request.name, request.role)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return LoginResponse(
+        session_token=session.token,
+        name=session.name,
+        role=session.role,
+    )
+
+
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+def chat(
+    request: ChatRequest,
+    authorization: str | None = Header(default=None),
+) -> ChatResponse:
     started_at = perf_counter()
+    session = _require_session(authorization)
+    effective_role = session.role
     try:
         guardrail_result = check_input_guardrails(request.question)
         if not guardrail_result.allowed:
-            return _guardrail_response(request, guardrail_result, _latency_ms(started_at))
+            return _guardrail_response(request, effective_role, guardrail_result, _latency_ms(started_at))
 
         rag_service = get_rag_service()
         response = rag_service.rag_chain.answer_question(
             question=request.question,
-            role=request.role,
+            role=effective_role,
             top_k=3,
             chat_history=request.history,
         )
         output_guardrail_result = check_output_guardrails(response.answer)
         if not output_guardrail_result.allowed:
-            return _guardrail_response(request, output_guardrail_result, _latency_ms(started_at))
+            return _guardrail_response(request, effective_role, output_guardrail_result, _latency_ms(started_at))
     except ValueError as exc:
-        _log_error_chat_event(request, str(exc), _latency_ms(started_at))
+        _log_error_chat_event(request, effective_role, str(exc), _latency_ms(started_at))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
-        _log_error_chat_event(request, str(exc), _latency_ms(started_at))
+        _log_error_chat_event(request, effective_role, str(exc), _latency_ms(started_at))
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     source_metadata = _source_metadata(response.sources)
     log_chat_event(
         question=request.question,
-        role=request.role,
+        role=effective_role,
         status="success",
         model=response.model,
         latency_ms=_latency_ms(started_at),
@@ -123,7 +154,7 @@ def chat(request: ChatRequest) -> ChatResponse:
 
     return ChatResponse(
         answer=response.answer,
-        role=request.role,
+        role=effective_role,
         model=response.model,
         sources=[
             SourceResponse(
@@ -137,12 +168,13 @@ def chat(request: ChatRequest) -> ChatResponse:
 
 def _guardrail_response(
     request: ChatRequest,
+    role: str,
     result: GuardrailResult,
     latency_ms: float,
 ) -> ChatResponse:
     log_guardrail_event(
         question=request.question,
-        role=request.role,
+        role=role,
         reason=result.reason,
         stage=result.stage,
         intent=result.intent.value,
@@ -150,7 +182,7 @@ def _guardrail_response(
     )
     log_chat_event(
         question=request.question,
-        role=request.role,
+        role=role,
         status="blocked",
         model=f"Guardrails:{result.reason}",
         latency_ms=latency_ms,
@@ -160,7 +192,7 @@ def _guardrail_response(
 
     return ChatResponse(
         answer=result.message,
-        role=request.role,
+        role=role,
         model=f"Guardrails:{result.reason}",
         sources=[],
         guardrail={
@@ -171,16 +203,31 @@ def _guardrail_response(
     )
 
 
-def _log_error_chat_event(request: ChatRequest, error: str, latency_ms: float) -> None:
+def _log_error_chat_event(request: ChatRequest, role: str, error: str, latency_ms: float) -> None:
     log_chat_event(
         question=request.question,
-        role=request.role,
+        role=role,
         status="error",
         model="",
         latency_ms=latency_ms,
         error=error,
         history_message_count=len(request.history),
     )
+
+
+def _require_session(authorization: str | None) -> DemoSession:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing authorization token")
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=401, detail="Invalid authorization header")
+
+    session = get_demo_session(token.strip())
+    if not session:
+        raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    return session
 
 
 def _source_metadata(sources: list[dict]) -> dict[str, list[str]]:

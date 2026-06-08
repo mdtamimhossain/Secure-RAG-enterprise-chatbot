@@ -18,18 +18,21 @@ import {
 } from '@lucide/vue'
 import ChatBox from './components/ChatBox.vue'
 import RoleSelector from './components/RoleSelector.vue'
-import { getMonitoringMetrics, getServiceStatus } from './services/api'
+import { getMonitoringMetrics, getServiceStatus, loginDemoUser } from './services/api'
 
 const sessionStarted = ref(false)
 const loginName = ref('')
 const loginRole = ref('employee')
 const selectedRole = ref('employee')
+const sessionToken = ref('')
 const activeView = ref('workspace')
 const status = ref(null)
 const statusError = ref('')
 const metrics = ref(null)
 const metricsError = ref('')
 const isDarkMode = ref(true)
+const loginError = ref('')
+const loginLoading = ref(false)
 
 const roleProfiles = {
   employee: {
@@ -158,15 +161,30 @@ const initials = computed(() =>
     .join('')
 )
 
-function startSession() {
+async function startSession() {
   if (!loginName.value.trim()) return
-  selectedRole.value = loginRole.value
-  activeView.value = 'workspace'
-  sessionStarted.value = true
+  loginError.value = ''
+  loginLoading.value = true
+  try {
+    const session = await loginDemoUser({
+      name: loginName.value,
+      role: loginRole.value,
+    })
+    selectedRole.value = session.role
+    loginName.value = session.name
+    sessionToken.value = session.session_token
+    activeView.value = 'workspace'
+    sessionStarted.value = true
+  } catch (error) {
+    loginError.value = error.message
+  } finally {
+    loginLoading.value = false
+  }
 }
 
 function signOut() {
   sessionStarted.value = false
+  sessionToken.value = ''
 }
 
 function switchView(viewId) {
@@ -234,10 +252,11 @@ onMounted(async () => {
           </div>
         </div>
 
-        <button class="login-button" type="submit" :disabled="!loginName.trim()">
+        <button class="login-button" type="submit" :disabled="!loginName.trim() || loginLoading">
           <Shield :size="18" aria-hidden="true" />
-          <span>Enter Workspace</span>
+          <span>{{ loginLoading ? 'Starting Session' : 'Enter Workspace' }}</span>
         </button>
+        <p v-if="loginError" class="login-error">{{ loginError }}</p>
       </form>
     </section>
   </main>
@@ -407,6 +426,7 @@ onMounted(async () => {
             :role="selectedRole"
             :role-label="activeProfile.label"
             :user-name="displayName"
+            :session-token="sessionToken"
           />
         </div>
       </section>
@@ -679,6 +699,16 @@ input {
 .login-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
+}
+
+.login-error {
+  margin: 0;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  background: #fff1f2;
+  color: #991b1b;
+  padding: 10px 12px;
+  font-size: 13px;
 }
 
 .app-shell {
