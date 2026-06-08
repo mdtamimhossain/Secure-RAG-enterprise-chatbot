@@ -267,13 +267,77 @@ def normalize_chat_history(
 
 
 def build_retrieval_query(question: str, chat_history: list[ChatHistoryMessage]) -> str:
+    clean_question = question.strip()
+    if not clean_question:
+        return ""
+
+    if not _is_follow_up_question(clean_question):
+        return clean_question
+
     recent_user_messages = [
         message.content
         for message in chat_history
         if message.role == "user"
     ][-2:]
-    query_parts = recent_user_messages + [question.strip()]
+    recent_assistant_messages = [
+        message.content
+        for message in chat_history
+        if message.role == "assistant"
+    ][-1:]
+    query_parts = recent_user_messages + recent_assistant_messages + [clean_question]
     return "\n".join(part for part in query_parts if part).strip()
+
+
+def _is_follow_up_question(question: str) -> bool:
+    normalized = question.strip().lower()
+    if not normalized:
+        return False
+
+    words = normalized.replace("?", "").replace(".", "").split()
+    follow_up_phrases = (
+        "yes",
+        "yeah",
+        "yep",
+        "no",
+        "explain",
+        "explain more",
+        "tell me more",
+        "what about",
+        "how about",
+        "what does that",
+        "what do you mean",
+        "i don't understand",
+        "dont understand",
+        "give me example",
+        "give an example",
+        "can you explain",
+        "and",
+        "also",
+    )
+    if normalized in follow_up_phrases:
+        return True
+    if any(normalized.startswith(phrase) for phrase in follow_up_phrases):
+        return True
+    if len(words) <= 4 and any(
+        token in words
+        for token in {
+            "that",
+            "this",
+            "it",
+            "those",
+            "them",
+            "more",
+            "example",
+            "examples",
+            "days",
+            "limit",
+            "carry-over",
+            "carryover",
+        }
+    ):
+        return True
+
+    return False
 
 
 def format_chat_history(chat_history: list[ChatHistoryMessage]) -> str:

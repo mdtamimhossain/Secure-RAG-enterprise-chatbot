@@ -10,6 +10,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.src.rag_service import build_rag_service
+from backend.src.rag_chain import ChatHistoryMessage, build_retrieval_query
 
 
 @dataclass(frozen=True)
@@ -18,6 +19,7 @@ class RetrievalCheck:
     role: str
     expected_department: str | None
     note: str
+    history: tuple[ChatHistoryMessage, ...] = ()
 
 
 CHECKS = [
@@ -63,6 +65,29 @@ CHECKS = [
         expected_department="general",
         note="Employee should retrieve general office/security information.",
     ),
+    RetrievalCheck(
+        question="What about carry-over?",
+        role="hr",
+        expected_department="hr",
+        note="Follow-up should use previous leave-policy context.",
+        history=(
+            ChatHistoryMessage(role="user", content="What is the leave policy?"),
+            ChatHistoryMessage(
+                role="assistant",
+                content="Codemars leave policy includes vacation days, sick leave, and carry-over rules.",
+            ),
+        ),
+    ),
+    RetrievalCheck(
+        question="How do I reset my password?",
+        role="employee",
+        expected_department="general",
+        note="New topic should retrieve password help, not old leave-policy context.",
+        history=(
+            ChatHistoryMessage(role="user", content="What is the leave policy?"),
+            ChatHistoryMessage(role="assistant", content="Codemars employees receive vacation days."),
+        ),
+    ),
 ]
 
 
@@ -76,8 +101,9 @@ def main() -> None:
 
     passed = 0
     for index, check in enumerate(CHECKS, start=1):
+        retrieval_query = build_retrieval_query(check.question, list(check.history))
         sources = service.rag_chain.retriever.retrieve(
-            query=check.question,
+            query=retrieval_query,
             role=check.role,
             top_k=3,
         )
@@ -92,6 +118,9 @@ def main() -> None:
         print(f"{index}. {'PASS' if matched else 'FAIL'} | role={check.role}")
         print(f"Question: {check.question}")
         print(f"Expectation: {check.note}")
+        if check.history:
+            print("Retrieval query:")
+            print(_indent(retrieval_query))
         if not sources:
             print("Sources: none")
         else:
@@ -116,6 +145,10 @@ def _matches_expected(departments: list[str], expected_department: str | None) -
         return "executive" not in departments and "finance" not in departments and "hr" not in departments
 
     return expected_department in departments
+
+
+def _indent(text: str) -> str:
+    return "\n".join(f"  {line}" for line in text.splitlines())
 
 
 if __name__ == "__main__":

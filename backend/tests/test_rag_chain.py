@@ -113,6 +113,33 @@ class RagChainTests(unittest.TestCase):
         self.assertIn("What is the remote work policy?", query)
         self.assertIn("yes", query)
 
+    def test_retrieval_query_uses_assistant_context_for_followups(self) -> None:
+        query = build_retrieval_query(
+            "What about carry-over?",
+            [
+                ChatHistoryMessage(role="user", content="What is the leave policy?"),
+                ChatHistoryMessage(
+                    role="assistant",
+                    content="Employees receive vacation days, sick leave, and carry-over rules.",
+                ),
+            ],
+        )
+
+        self.assertIn("What is the leave policy?", query)
+        self.assertIn("carry-over rules", query)
+        self.assertIn("What about carry-over?", query)
+
+    def test_retrieval_query_ignores_history_for_new_topic(self) -> None:
+        query = build_retrieval_query(
+            "How do I reset my password?",
+            [
+                ChatHistoryMessage(role="user", content="What is the leave policy?"),
+                ChatHistoryMessage(role="assistant", content="Employees receive vacation days."),
+            ],
+        )
+
+        self.assertEqual(query, "How do I reset my password?")
+
     def test_parse_source_usage_hides_sources_for_casual_answer(self) -> None:
         answer, show_sources = parse_source_usage("SOURCE_USAGE: casual\nHello there.")
 
