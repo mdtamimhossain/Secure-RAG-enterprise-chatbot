@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { FileText, Plus, Search, Send, ShieldCheck } from '@lucide/vue'
-import { createConversation, getChatHistory, sendChatMessage } from '../services/api'
+import { createConversation, getChatHistory, getConversations, sendChatMessage } from '../services/api'
 
 const props = defineProps({
   role: {
@@ -26,25 +26,30 @@ const props = defineProps({
   },
 })
 
+const emit = defineEmits(['conversation-change'])
+
 const question = ref('')
 const loading = ref(false)
 const error = ref('')
 const messageList = ref(null)
 const messages = ref([])
 const conversationId = ref(props.initialConversationId)
+const conversations = ref([])
 
 const canSend = computed(() => question.value.trim().length > 0 && !loading.value)
 const hasConversation = computed(() => messages.value.length > 0)
 
-onMounted(() => {
-  loadSavedMessages()
+onMounted(async () => {
+  await loadConversations()
+  await loadSavedMessages()
 })
 
 watch(
   () => [props.sessionToken, props.initialConversationId],
-  () => {
+  async () => {
     conversationId.value = props.initialConversationId
-    loadSavedMessages()
+    await loadConversations()
+    await loadSavedMessages()
     error.value = ''
   },
 )
@@ -76,6 +81,7 @@ async function submitQuestion() {
       guardrail: response.guardrail || null,
       createdAt: timestamp(),
     })
+    await loadConversations()
     scrollToBottom()
   } catch (err) {
     error.value = err.message
@@ -95,12 +101,23 @@ async function clearChat() {
       title: 'New chat',
     })
     conversationId.value = conversation.id
+    emit('conversation-change', conversation.id)
+    await loadConversations()
   } catch (err) {
     error.value = err.message
     return
   }
   messages.value = []
   error.value = ''
+}
+
+async function selectConversation(selectedConversationId) {
+  if (conversationId.value === selectedConversationId) return
+
+  conversationId.value = selectedConversationId
+  emit('conversation-change', selectedConversationId)
+  error.value = ''
+  await loadSavedMessages()
 }
 
 function recentHistory() {
@@ -132,6 +149,26 @@ async function loadSavedMessages() {
   }
 }
 
+async function loadConversations() {
+  if (!props.sessionToken) {
+    conversations.value = []
+    return
+  }
+
+  try {
+    const response = await getConversations({ sessionToken: props.sessionToken })
+    conversations.value = Array.isArray(response) ? response : []
+
+    if (!conversationId.value && conversations.value.length) {
+      conversationId.value = conversations.value[0].id
+      emit('conversation-change', conversationId.value)
+    }
+  } catch (err) {
+    error.value = err.message
+    conversations.value = []
+  }
+}
+
 function normalizeSavedMessages(savedMessages) {
   if (
     savedMessages.length === 1 &&
@@ -149,6 +186,14 @@ function labelFor(source) {
   return metadata.filename || metadata.source || 'Company document'
 }
 
+function conversationLabel(conversation, index) {
+  if (conversation.title && conversation.title !== 'New chat') {
+    return conversation.title
+  }
+
+  return `Chat ${conversations.value.length - index}`
+}
+
 function timestamp() {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
@@ -163,9 +208,23 @@ async function scrollToBottom() {
 
 <template>
   <section class="assistant-screen" aria-label="AI assistant">
-    <button v-if="hasConversation" class="clear-chat" type="button" @click="clearChat">
-      New chat
-    </button>
+    <div class="conversation-toolbar">
+      <button class="clear-chat" type="button" @click="clearChat">
+        New chat
+      </button>
+      <div v-if="conversations.length" class="conversation-tabs" aria-label="Saved conversations">
+        <button
+          v-for="(conversation, index) in conversations"
+          :key="conversation.id"
+          class="conversation-tab"
+          :class="{ active: conversation.id === conversationId }"
+          type="button"
+          @click="selectConversation(conversation.id)"
+        >
+          {{ conversationLabel(conversation, index) }}
+        </button>
+      </div>
+    </div>
 
     <div ref="messageList" class="conversation" :class="{ empty: !hasConversation }" aria-live="polite">
       <div v-if="!hasConversation" class="assistant-home">
@@ -298,11 +357,20 @@ async function scrollToBottom() {
   z-index: 3;
 }
 
-.clear-chat {
+.conversation-toolbar {
   position: absolute;
   top: 2px;
   left: 0;
+  right: 0;
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.clear-chat,
+.conversation-tab {
   border: 1px solid var(--border, #d8dee7);
   border-radius: 999px;
   background: var(--surface, #ffffff);
@@ -311,6 +379,29 @@ async function scrollToBottom() {
   cursor: pointer;
   font-size: 13px;
   font-weight: 760;
+}
+
+.conversation-tabs {
+  display: flex;
+  min-width: 0;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.conversation-tab {
+  max-width: 140px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-tab.active {
+  border-color: color-mix(in srgb, var(--role-accent, #1f6feb) 42%, var(--border));
+  background: color-mix(in srgb, var(--role-accent, #1f6feb) 12%, var(--surface));
+  color: var(--heading, #111827);
 }
 
 .conversation {

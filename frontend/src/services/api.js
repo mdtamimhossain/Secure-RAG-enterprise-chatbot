@@ -36,6 +36,21 @@ export async function createConversation({ sessionToken, title = 'New chat' }) {
   return body
 }
 
+export async function getConversations({ sessionToken }) {
+  const response = await fetch(`${API_BASE_URL}/conversations`, {
+    headers: {
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+    },
+  })
+  const body = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(body.detail || 'Unable to load conversations.')
+  }
+
+  return body
+}
+
 export async function sendChatMessage({
   question,
   role,

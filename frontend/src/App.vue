@@ -20,6 +20,8 @@ import ChatBox from './components/ChatBox.vue'
 import RoleSelector from './components/RoleSelector.vue'
 import { getMonitoringMetrics, getServiceStatus, loginDemoUser } from './services/api'
 
+const SESSION_STORAGE_KEY = 'codemars-intranet-session'
+
 const sessionStarted = ref(false)
 const loginName = ref('')
 const loginRole = ref('employee')
@@ -177,6 +179,7 @@ async function startSession() {
     activeConversationId.value = session.active_conversation_id
     activeView.value = 'workspace'
     sessionStarted.value = true
+    saveSession()
   } catch (error) {
     loginError.value = error.message
   } finally {
@@ -188,6 +191,7 @@ function signOut() {
   sessionStarted.value = false
   sessionToken.value = ''
   activeConversationId.value = null
+  window.localStorage.removeItem(SESSION_STORAGE_KEY)
 }
 
 function switchView(viewId) {
@@ -198,7 +202,48 @@ function toggleTheme() {
   isDarkMode.value = !isDarkMode.value
 }
 
+function setActiveConversation(conversationId) {
+  activeConversationId.value = conversationId
+  saveSession()
+}
+
+function saveSession() {
+  if (!sessionToken.value) return
+
+  window.localStorage.setItem(
+    SESSION_STORAGE_KEY,
+    JSON.stringify({
+      name: displayName.value,
+      role: selectedRole.value,
+      sessionToken: sessionToken.value,
+      activeConversationId: activeConversationId.value,
+    }),
+  )
+}
+
+function restoreSession() {
+  const storedSession = window.localStorage.getItem(SESSION_STORAGE_KEY)
+  if (!storedSession) return
+
+  try {
+    const parsedSession = JSON.parse(storedSession)
+    if (!parsedSession?.sessionToken || !parsedSession?.name || !parsedSession?.role) return
+
+    loginName.value = parsedSession.name
+    loginRole.value = parsedSession.role
+    selectedRole.value = parsedSession.role
+    sessionToken.value = parsedSession.sessionToken
+    activeConversationId.value = parsedSession.activeConversationId || null
+    activeView.value = 'workspace'
+    sessionStarted.value = true
+  } catch {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY)
+  }
+}
+
 onMounted(async () => {
+  restoreSession()
+
   try {
     const [serviceStatus, monitoringMetrics] = await Promise.all([
       getServiceStatus(),
@@ -431,6 +476,7 @@ onMounted(async () => {
             :user-name="displayName"
             :session-token="sessionToken"
             :initial-conversation-id="activeConversationId"
+            @conversation-change="setActiveConversation"
           />
         </div>
       </section>
