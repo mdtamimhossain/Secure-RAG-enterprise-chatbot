@@ -26,6 +26,10 @@ jobs:
         run: python -m unittest discover backend/tests -v
       - name: Run RAG evaluation
         run: python -m backend.evaluation.run_eval
+      - name: Run retrieval quality checks
+        run: python backend/check_retrieval_quality.py
+      - name: Run answer quality checks
+        run: python backend/check_answer_quality.py
   frontend-build:
     runs-on: ubuntu-latest
 
