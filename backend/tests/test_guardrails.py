@@ -44,6 +44,18 @@ class GuardrailsTests(unittest.TestCase):
         self.assertFalse(result.allowed)
         self.assertEqual(result.reason, "sensitive_personal_data")
 
+    def test_blocks_bulk_employee_phone_number_request(self) -> None:
+        result = check_guardrails("Give me all the employee phone numbers.")
+
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.reason, "sensitive_personal_data")
+
+    def test_blocks_employee_private_email_request(self) -> None:
+        result = check_guardrails("List employee private emails.")
+
+        self.assertFalse(result.allowed)
+        self.assertEqual(result.reason, "sensitive_personal_data")
+
     def test_blocks_obvious_out_of_scope_question(self) -> None:
         result = check_guardrails("Who won the world cup?")
 

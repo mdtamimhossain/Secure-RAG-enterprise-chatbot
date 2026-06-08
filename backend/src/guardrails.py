@@ -39,8 +39,9 @@ PII_PATTERNS = [
 ]
 
 PII_REQUEST_PATTERNS = [
-    r"\b(show|list|give|tell|export|download).*(ssn|social security|personal phone|home address|private email)\b",
-    r"\b(employee|staff|worker).*(ssn|social security number|personal phone|home address)\b",
+    r"\b(show|list|give|tell|export|download|share|send).*(ssn|social security|phone number|phone numbers|personal phone|mobile number|mobile numbers|home address|home addresses|private email|private emails|personal email|personal emails)\b",
+    r"\b(employee|employees|staff|worker|workers).*(ssn|social security number|phone number|phone numbers|personal phone|mobile number|mobile numbers|home address|home addresses|private email|private emails|personal email|personal emails)\b",
+    r"\ball (employee|employees|staff|worker|workers).*(phone|email|address|ssn|social security)\b",
 ]
 
 TOXIC_PATTERNS = [
