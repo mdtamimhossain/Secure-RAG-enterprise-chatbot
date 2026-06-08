@@ -103,7 +103,7 @@ def _build_metadata(path: Path, root: Path) -> dict[str, str]:
         "file_type": path.suffix.lower().lstrip("."),
         "scope": "company_document",
         "department": department,
-        "category": _infer_category(path),
+        "category": _infer_category(path, department),
         "confidentiality": _infer_confidentiality(top_level_folder),
         "allowed_roles": DEFAULT_ROLE_ACCESS.get(
             department,
@@ -130,8 +130,11 @@ def _infer_confidentiality(top_level_folder: str) -> str:
     return "internal"
 
 
-def _infer_category(path: Path) -> str:
+def _infer_category(path: Path, department: str = "general") -> str:
     name = path.stem.lower()
+    if "knowledge_base" in name:
+        return f"{department}_knowledge_base"
+
     category_keywords = {
         "leave_policy": ["leave", "vacation", "sick"],
         "payroll": ["payroll", "salary", "compensation", "payslip"],

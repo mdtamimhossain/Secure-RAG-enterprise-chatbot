@@ -61,6 +61,19 @@ class DocumentLoaderTests(unittest.TestCase):
 
         self.assertEqual(documents, [])
 
+    def test_infers_department_specific_knowledge_base_category(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            data_dir = Path(temp_dir)
+            file_path = data_dir / "finance" / "codemars_finance_knowledge_base_2026.md"
+            file_path.parent.mkdir()
+            file_path.write_text("Finance knowledge base content.", encoding="utf-8")
+
+            documents = load_documents(data_dir)
+
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(documents[0].metadata["department"], "finance")
+        self.assertEqual(documents[0].metadata["category"], "finance_knowledge_base")
+
 
 if __name__ == "__main__":
     unittest.main()
