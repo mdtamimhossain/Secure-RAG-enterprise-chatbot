@@ -1,34 +1,114 @@
-# Cloud Deployment Learning Notes
+# Cloud Deployment Notes
 
 Project: Secure Enterprise RAG Chatbot / Codemars Intranet
 
-This document records the cloud deployment learning path from Docker setup to
-AWS EC2 deployment and the next CI/CD automation phase.
+Goal:
+
+```text
+Learn and build a real deployment path:
+Docker -> Docker Compose -> GitHub Actions CI -> AWS ECR -> AWS EC2 -> CI/CD deployment
+```
+
+This document is written as a learning guide. Each step explains:
+
+- what the step does
+- why it is needed
+- which command to run
+- what result to expect
+- common problems and fixes
 
 ---
 
-## 1. Why Docker Is Needed
+## 1. Final Architecture
 
-Docker packages an application with the runtime it needs.
+Current deployed architecture:
+
+```text
+User browser
+  -> EC2 public IP on port 80
+  -> frontend nginx container
+  -> Vue static app
+  -> /api/* requests
+  -> backend FastAPI container on port 8000
+  -> RAG chatbot service
+```
+
+Current cloud resources:
+
+```text
+AWS account ID: 281639842123
+ECR region: eu-central-1
+EC2 user: ubuntu
+Backend ECR image:
+  281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
+Frontend ECR image:
+  281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
+```
+
+Current public checks:
+
+```text
+Backend docs:
+http://13.49.241.90:8000/docs
+
+Frontend app:
+http://13.49.241.90
+```
+
+Important:
+
+If EC2 is stopped and started again, the public IP can change unless you attach
+an Elastic IP. Update all commands and GitHub secrets with the new public IP.
+
+---
+
+## 2. Why Docker Is Used
+
+Docker packages an application with its runtime and dependencies.
 
 For this project:
 
-- Backend needs Python, FastAPI, dependencies, backend code, and Uvicorn.
-- Frontend needs Vue build files served by nginx.
-- Docker lets the same application run locally, in CI, and in cloud.
+```text
+Backend image:
+  Python + FastAPI + backend code + dependencies
+
+Frontend image:
+  Vue build files + nginx web server
+```
 
 Key terms:
 
-- **Dockerfile**: recipe for building one Docker image.
-- **Image**: packaged application template.
-- **Container**: running instance of an image.
-- **Docker Compose**: runs multiple containers together.
-- **Volume**: persistent Docker storage.
-- **Registry**: place to store Docker images, such as AWS ECR.
+```text
+Dockerfile:
+  Recipe for building an image.
+
+Image:
+  Packaged application template.
+
+Container:
+  Running instance of an image.
+
+Registry:
+  Storage for Docker images. AWS ECR is a registry.
+
+Docker network:
+  Allows containers to communicate by name.
+
+Docker volume:
+  Persistent storage managed by Docker.
+```
+
+Why Docker matters:
+
+```text
+Same app can run locally, in GitHub Actions, and on EC2.
+Deployment becomes repeatable.
+EC2 does not need your source code structure, only Docker images.
+```
 
 ---
 
-## 2. Backend Dockerfile
+## 3. Backend Dockerfile
 
 File:
 
@@ -36,7 +116,7 @@ File:
 backend/Dockerfile
 ```
 
-Final content:
+Content:
 
 ```dockerfile
 FROM python:3.12-slim
@@ -64,28 +144,63 @@ CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port
 
 Explanation:
 
-- `FROM python:3.12-slim`: uses official Python 3.12 slim Linux image.
-- `PYTHONDONTWRITEBYTECODE=1`: prevents `.pyc` cache files.
-- `PYTHONUNBUFFERED=1`: prints logs immediately.
-- `PYTHONPATH=/app`: allows imports like `backend.main`.
-- `WORKDIR /app`: all later commands run from `/app`.
-- `apt-get install build-essential`: installs Linux build tools for Python packages.
-- `COPY backend/requirements.txt ...`: copies dependency file first for Docker cache.
-- `pip install ...`: installs backend dependencies.
-- `COPY backend ...`: copies backend code and data.
-- `EXPOSE 8000`: documents backend port.
-- `CMD ... --host 0.0.0.0`: starts FastAPI and makes it reachable from outside the container.
+```text
+FROM python:3.12-slim
+  Starts from a lightweight official Python image.
 
-Build command:
+ENV PYTHONDONTWRITEBYTECODE=1
+  Prevents Python from creating .pyc cache files.
+
+ENV PYTHONUNBUFFERED=1
+  Makes logs print immediately.
+
+ENV PYTHONPATH=/app
+  Allows imports like backend.main.
+
+WORKDIR /app
+  Sets /app as the working directory inside the container.
+
+apt-get install build-essential
+  Installs Linux build tools needed by some Python packages.
+
+COPY backend/requirements.txt first
+  Helps Docker cache dependency installation.
+
+pip install --no-cache-dir
+  Installs Python dependencies without keeping pip cache.
+
+COPY backend
+  Copies backend source code and data.
+
+EXPOSE 8000
+  Documents that the app uses port 8000.
+
+CMD uvicorn --host 0.0.0.0
+  Starts FastAPI and allows connections from outside the container.
+```
+
+Build backend image locally:
 
 ```powershell
 docker build --file backend/Dockerfile --tag codemars-rag-backend .
 ```
 
-Run command:
+Why:
+
+```text
+Creates a local Docker image named codemars-rag-backend.
+```
+
+Run backend locally:
 
 ```powershell
 docker run --rm -p 8000:8000 codemars-rag-backend
+```
+
+Why:
+
+```text
+Maps your computer port 8000 to the container port 8000.
 ```
 
 Test:
@@ -102,18 +217,13 @@ Expected:
 
 ---
 
-## 3. Docker Ignore
+## 4. Docker Ignore
 
 File:
 
 ```text
 .dockerignore
 ```
-
-Purpose:
-
-Docker sends the project folder as build context. `.dockerignore` prevents
-unnecessary or secret files from being sent.
 
 Recommended content:
 
@@ -135,14 +245,15 @@ backend/logs/
 
 Why:
 
-- avoids copying local virtual environments
-- avoids copying `node_modules`
-- avoids copying logs and secrets
-- makes Docker builds faster and safer
+```text
+Docker sends files to the Docker engine during build.
+.dockerignore keeps builds smaller, faster, and safer.
+It also prevents secrets and virtual environments from entering images.
+```
 
 ---
 
-## 4. Frontend Dockerfile
+## 5. Frontend Dockerfile
 
 File:
 
@@ -150,7 +261,7 @@ File:
 frontend/Dockerfile
 ```
 
-Final content:
+Content:
 
 ```dockerfile
 FROM node:22-alpine AS build
@@ -168,6 +279,7 @@ RUN npm run build
 FROM nginx:1.27-alpine
 
 COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+
 COPY --from=build /app/dist /usr/share/nginx/html
 
 EXPOSE 80
@@ -175,21 +287,25 @@ EXPOSE 80
 
 Explanation:
 
-- This is a **multi-stage build**.
-- Stage 1 uses Node to build Vue.
-- Stage 2 uses nginx to serve static files.
-- Final image does not need Node or `node_modules`.
+```text
+This is a multi-stage build.
 
-Build command:
+Stage 1: Node builds the Vue app.
+Stage 2: nginx serves the built static files.
 
-```powershell
-docker build --file frontend/Dockerfile --tag codemars-rag-frontend .
+The final image does not contain node_modules or the Node build tools.
 ```
 
-Run command:
+Build frontend image locally:
 
 ```powershell
-docker run --rm -p 5173:80 codemars-rag-frontend
+docker build --file frontend/Dockerfile --tag rag-chatbot-frontend .
+```
+
+Run frontend locally:
+
+```powershell
+docker run --rm -p 5173:80 rag-chatbot-frontend
 ```
 
 Test:
@@ -200,7 +316,7 @@ http://localhost:5173
 
 ---
 
-## 5. nginx Config
+## 6. nginx Reverse Proxy
 
 File:
 
@@ -208,7 +324,7 @@ File:
 frontend/nginx.conf
 ```
 
-Final content:
+Content:
 
 ```nginx
 server {
@@ -235,26 +351,33 @@ server {
 
 Why nginx is needed:
 
-- serves Vue static files
-- forwards `/api/*` requests to backend
-- supports Vue single-page app fallback
+```text
+1. Serves the Vue app.
+2. Forwards frontend API calls to backend.
+3. Supports Vue single-page routing.
+```
 
 Important proxy behavior:
 
 ```text
-/api/health -> backend:8000/health
-/api/chat   -> backend:8000/chat
+Browser calls:
+  /api/health
+
+nginx forwards to:
+  http://backend:8000/health
 ```
 
-The slash in this line matters:
+Important Docker lesson:
 
-```nginx
-proxy_pass http://backend:8000/;
+```text
+backend is not an internet domain.
+backend is the Docker container name or Docker network alias.
+The frontend container can resolve backend only if both containers are in the same Docker network.
 ```
 
 ---
 
-## 6. Docker Compose
+## 7. Docker Compose For Local Multi-Container Run
 
 File:
 
@@ -264,94 +387,71 @@ docker-compose.yml
 
 Purpose:
 
-Runs backend and frontend together.
-
-Example final structure:
-
-```yaml
-services:
-  backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: codemars-rag-backend
-    environment:
-      LLM_PROVIDER: ${LLM_PROVIDER:-fake}
-      GROQ_API_KEY: ${GROQ_API_KEY:-}
-      GROQ_MODEL: ${GROQ_MODEL:-llama-3.1-8b-instant}
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-hash}
-      RAG_LOG_DIR: /app/backend/logs
-    ports:
-      - "8000:8000"
-    volumes:
-      - backend_logs:/app/backend/logs
-      - chroma_data:/tmp/secure_rag_chroma_api
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 20s
-
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    container_name: codemars-rag-frontend
-    depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "5173:80"
-
-volumes:
-  backend_logs:
-  chroma_data:
+```text
+Run backend and frontend together locally with one command.
 ```
 
-Run:
+Useful command:
 
 ```powershell
 docker compose up --build
 ```
 
-Test:
+Why:
+
+```text
+Builds both images and starts both containers.
+```
+
+Test local frontend:
 
 ```text
 http://localhost:5173
+```
+
+Test local API through frontend nginx:
+
+```text
 http://localhost:5173/api/health
 ```
 
-Expected API health:
+Expected:
 
 ```json
 {"status":"ok"}
 ```
 
-Stop:
+Stop containers:
 
 ```powershell
 docker compose down
 ```
 
-Stop and delete volumes:
+Stop containers and delete volumes:
 
 ```powershell
 docker compose down -v
 ```
 
+Why volumes matter:
+
+```text
+backend_logs stores monitoring logs.
+chroma_data stores Chroma vector database data.
+```
+
 ---
 
-## 7. Environment Variables
+## 8. Environment Variables
 
-Files:
+Local files:
 
 ```text
 .env.example
 .env
 ```
 
-`.env.example` is safe to commit.
+Example:
 
 ```env
 LLM_PROVIDER=fake
@@ -360,56 +460,35 @@ GROQ_MODEL=llama-3.1-8b-instant
 EMBEDDING_PROVIDER=hash
 ```
 
-`.env` is local/private and should not be committed.
+Meaning:
+
+```text
+LLM_PROVIDER
+  Controls which LLM backend to use. Example: fake or groq.
+
+GROQ_API_KEY
+  Secret API key for Groq.
+
+GROQ_MODEL
+  Model name used by Groq.
+
+EMBEDDING_PROVIDER
+  hash means use local hash embeddings, not paid API embeddings.
+```
 
 Why:
 
-- secrets should not be hardcoded
-- cloud platforms inject environment variables
-- GitHub Actions can use secrets later
+```text
+Secrets should not be hardcoded.
+Different environments need different values.
+Local Docker, EC2, and GitHub Actions can all inject env variables.
+```
 
 Check Compose config:
 
 ```powershell
 docker compose config
 ```
-
----
-
-## 8. Docker Volumes
-
-Volumes used:
-
-```yaml
-backend_logs:/app/backend/logs
-chroma_data:/tmp/secure_rag_chroma_api
-```
-
-Purpose:
-
-- `backend_logs`: stores monitoring logs
-- `chroma_data`: stores Chroma vector DB files
-
-View volumes:
-
-```powershell
-docker volume ls
-```
-
-Enter backend container:
-
-```powershell
-docker compose exec backend sh
-```
-
-Check logs:
-
-```sh
-ls /app/backend/logs
-cat /app/backend/logs/chat_events.jsonl
-```
-
-JSONL means one JSON object per line.
 
 ---
 
@@ -421,127 +500,72 @@ File:
 .github/workflows/ci.yml
 ```
 
+CI means Continuous Integration.
+
 Purpose:
 
-Run checks automatically on GitHub.
+```text
+Automatically check code whenever you push or open a pull request.
+```
 
-The CI pipeline checks:
+Current CI checks:
 
-- backend tests
-- RAG evaluation
-- frontend build
-- backend Docker image build
-- frontend Docker image build
+```text
+backend-tests:
+  Install Python dependencies.
+  Run backend unit tests.
+  Run RAG evaluation.
 
-Core workflow:
+frontend-build:
+  Install Node dependencies.
+  Build Vue app.
 
-```yaml
-name: CI
-
-on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
-
-jobs:
-  backend-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install backend dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt
-
-      - name: Run backend tests
-        run: python -m unittest discover backend/tests -v
-
-      - name: Run RAG evaluation
-        run: python -m backend.evaluation.run_eval
-
-  frontend-build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build frontend
-        working-directory: frontend
-        run: npm run build
-
-  docker-build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Build backend Docker image
-        run: docker build --file backend/Dockerfile --tag codemars-rag-backend .
-
-      - name: Build frontend Docker image
-        run: docker build --file frontend/Dockerfile --tag codemars-rag-frontend .
+docker-build:
+  Build backend Docker image.
+  Build frontend Docker image.
 ```
 
 Important lesson:
 
-CI starts from repo root, so backend requirements path must be:
-
 ```text
-backend/requirements.txt
+GitHub Actions starts from the repository root.
+So the backend dependency path must be backend/requirements.txt,
+not requirements.txt.
 ```
 
-not:
+Run tests locally before pushing:
 
-```text
-requirements.txt
+```powershell
+python -m unittest discover backend/tests -v
+```
+
+Run frontend build locally:
+
+```powershell
+cd frontend
+npm run build
+cd ..
+```
+
+Check git status:
+
+```powershell
+git status --short
 ```
 
 ---
 
-## 10. AWS IAM User
+## 10. AWS CLI Setup
 
-Created IAM user:
+AWS CLI lets your terminal talk to AWS.
 
-```text
-rag-chatbot
+Install check:
+
+```powershell
+aws --version
 ```
 
-Purpose:
-
-Use AWS CLI from local PowerShell.
-
-Policies for learning:
-
-```text
-AmazonEC2FullAccess
-AmazonEC2ContainerRegistryPowerUser
-```
-
-Why:
-
-- EC2 policy allows managing EC2 servers.
-- ECR policy allows creating repositories and pushing Docker images.
-
-Configure AWS CLI:
+Configure:
 
 ```powershell
 aws configure
@@ -550,13 +574,13 @@ aws configure
 Inputs:
 
 ```text
-AWS Access Key ID: your key
-AWS Secret Access Key: your secret
+AWS Access Key ID: your access key
+AWS Secret Access Key: your secret key
 Default region name: eu-central-1
 Default output format: json
 ```
 
-Verify:
+Verify identity:
 
 ```powershell
 aws sts get-caller-identity
@@ -566,24 +590,63 @@ Expected:
 
 ```json
 {
-  "Account": "...",
-  "Arn": "arn:aws:iam::ACCOUNT_ID:user/rag-chatbot"
+  "Account": "281639842123",
+  "Arn": "arn:aws:iam::281639842123:user/rag-chatbot"
 }
 ```
 
-Never share or commit access keys.
+Why:
+
+```text
+This confirms your terminal is authenticated to the correct AWS account.
+```
 
 ---
 
-## 11. AWS ECR
+## 11. AWS IAM User
+
+Created IAM user:
+
+```text
+rag-chatbot
+```
+
+Why:
+
+```text
+The local AWS CLI needs permission to create ECR repos and push Docker images.
+```
+
+Learning policies used:
+
+```text
+AmazonEC2FullAccess
+AmazonEC2ContainerRegistryPowerUser
+```
+
+Important:
+
+```text
+Never commit AWS access keys.
+Never paste AWS secret keys into normal code files.
+Use GitHub Secrets for CI/CD.
+```
+
+---
+
+## 12. AWS ECR
 
 ECR means Elastic Container Registry.
 
 Purpose:
 
+```text
 Store Docker images in AWS.
+GitHub Actions pushes images to ECR.
+EC2 pulls images from ECR.
+```
 
-Create repository:
+Create backend repository:
 
 ```powershell
 aws ecr create-repository --repository-name rag-chatbot-backend --region eu-central-1
@@ -595,42 +658,51 @@ Create frontend repository:
 aws ecr create-repository --repository-name rag-chatbot-frontend --region eu-central-1
 ```
 
-Repository ARN:
-
-```text
-arn:aws:ecr:eu-central-1:281639842123:repository/rag-chatbot-backend
-```
-
-Image URI:
-
-```text
-281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
-281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
-```
-
 Login Docker to ECR:
 
 ```powershell
 aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 281639842123.dkr.ecr.eu-central-1.amazonaws.com
 ```
 
-Tag local image:
+Why:
+
+```text
+Docker must authenticate before it can push images to a private ECR registry.
+```
+
+Build backend:
+
+```powershell
+docker build --file backend/Dockerfile --tag codemars-rag-backend .
+```
+
+Tag backend for ECR:
 
 ```powershell
 docker tag codemars-rag-backend:latest 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
 ```
 
-Push image:
+Push backend:
 
 ```powershell
 docker push 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
 ```
 
-Frontend build, tag, and push:
+Build frontend:
 
 ```powershell
 docker build --file frontend/Dockerfile --tag rag-chatbot-frontend .
+```
+
+Tag frontend for ECR:
+
+```powershell
 docker tag rag-chatbot-frontend:latest 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
+```
+
+Push frontend:
+
+```powershell
 docker push 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
 ```
 
@@ -642,48 +714,48 @@ tag does not exist
 
 Cause:
 
-The local image was not tagged with the ECR URI.
+```text
+The local image name was misspelled or not tagged with the ECR URI.
+```
 
 Fix:
 
-Run `docker tag ...` before `docker push`.
+```powershell
+docker images
+docker tag CORRECT_LOCAL_IMAGE:latest ECR_IMAGE_URI:latest
+```
 
 ---
 
-## 12. AWS EC2
+## 13. AWS EC2
+
+EC2 means Elastic Compute Cloud.
 
 Purpose:
 
-Run a remote Ubuntu server in AWS.
-
-Instance created:
-
 ```text
-codemars-rag-backend-server
+Run a Linux server in AWS where Docker containers can run.
 ```
 
-Recommended learning settings:
+Instance setup:
 
 ```text
 AMI: Ubuntu Server 24.04 LTS
-Instance type: t3.micro or free-tier eligible type
-Storage: 8 GB gp3
-Region: eu-central-1
-Security group:
-  SSH 22 from My IP
-  TCP 8000 from My IP
-```
-
-Key pair:
-
-```text
-rag-chatbot-key.pem
+Instance type: free-tier eligible type
+Key pair: rag-chatbot-key.pem
+User: ubuntu
 ```
 
 SSH command:
 
 ```powershell
 ssh -i "F:\ML Project\Resource and documents\rag-chatbot-key.pem" ubuntu@13.49.241.90
+```
+
+Why:
+
+```text
+SSH gives terminal access to the remote Ubuntu server.
 ```
 
 If key permissions are too open on Windows:
@@ -695,15 +767,69 @@ icacls "F:\ML Project\Resource and documents\rag-chatbot-key.pem" /grant "tamim\
 icacls "F:\ML Project\Resource and documents\rag-chatbot-key.pem"
 ```
 
-Expected SSH prompt:
+Common SSH timeout:
 
 ```text
-ubuntu@ip-...:~$
+ssh: connect to host ... port 22: Connection timed out
+```
+
+Possible causes:
+
+```text
+Wrong public IP.
+Instance stopped.
+Wrong AWS region selected.
+Security Group does not allow SSH.
 ```
 
 ---
 
-## 13. Install Docker On EC2
+## 14. EC2 Security Group
+
+Security Group is the firewall for EC2.
+
+Rules used while learning:
+
+```text
+SSH:
+  Port: 22
+  Source: My IP or temporary 0.0.0.0/0 for GitHub Actions SSH
+
+HTTP:
+  Port: 80
+  Source: 0.0.0.0/0
+
+Backend direct access:
+  Port: 8000
+  Source: 0.0.0.0/0 for testing
+```
+
+Why:
+
+```text
+Port 22 is needed for SSH.
+Port 80 is needed for browser access to frontend.
+Port 8000 was used to test FastAPI directly.
+```
+
+Production improvement:
+
+```text
+After frontend nginx works, port 8000 can be closed publicly.
+The browser should use port 80, and nginx should call backend internally.
+```
+
+GitHub Actions SSH issue:
+
+```text
+SSH 22 from My IP works only from your computer.
+GitHub Actions runs from GitHub servers, so it is blocked.
+For learning, SSH 22 was temporarily opened to 0.0.0.0/0.
+```
+
+---
+
+## 15. Install Docker On EC2
 
 Run inside EC2:
 
@@ -716,6 +842,28 @@ sudo usermod -aG docker ubuntu
 newgrp docker
 ```
 
+Explanation:
+
+```text
+apt update:
+  Refreshes Ubuntu package list.
+
+apt install docker.io:
+  Installs Docker.
+
+systemctl start docker:
+  Starts Docker now.
+
+systemctl enable docker:
+  Starts Docker automatically after reboot.
+
+usermod -aG docker ubuntu:
+  Lets ubuntu user run docker without sudo.
+
+newgrp docker:
+  Applies the group change in the current SSH session.
+```
+
 Test:
 
 ```bash
@@ -723,31 +871,27 @@ docker --version
 docker ps
 ```
 
-Why:
+Expected:
 
-EC2 is just a Linux server. Docker must be installed before it can run
-containers.
+```text
+docker ps should run without permission error.
+```
 
 ---
 
-## 14. EC2 IAM Role For ECR Pull
+## 16. EC2 IAM Role For ECR Pull
 
 Best practice:
 
-Do not put AWS access keys on EC2.
-
-Instead, attach an IAM role to EC2.
+```text
+Do not store AWS access keys on EC2.
+Attach an IAM role to EC2 instead.
+```
 
 Role created:
 
 ```text
 codemars-ec2-ecr-readonly-role
-```
-
-Trusted entity:
-
-```text
-AWS service -> EC2
 ```
 
 Policy:
@@ -756,91 +900,138 @@ Policy:
 AmazonEC2ContainerRegistryReadOnly
 ```
 
-Attach to instance:
+Attach role:
 
 ```text
-EC2 -> Instances -> select instance
-Actions -> Security -> Modify IAM role
-Choose codemars-ec2-ecr-readonly-role
-Update IAM role
+EC2 Console
+  -> Instances
+  -> select instance
+  -> Actions
+  -> Security
+  -> Modify IAM role
+  -> choose codemars-ec2-ecr-readonly-role
 ```
 
 Why:
 
-EC2 only needs to pull images from ECR, not push or create repositories.
+```text
+EC2 only needs to pull images from ECR.
+It does not need permission to create repositories or push images.
+```
 
 ---
 
-## 15. Current Project State
+## 17. Pull And Run Backend On EC2
 
-Completed:
+Login to ECR from EC2:
 
-- backend Docker image built locally
-- frontend Docker image built locally
-- Docker Compose works locally
-- nginx proxies `/api/*` to backend
-- GitHub Actions CI works
-- Docker build checks run in CI
-- AWS CLI configured for new account
-- backend and frontend ECR repos created
-- backend image pushed to ECR
-- frontend image pushed to ECR
-- EC2 Ubuntu instance running
-- SSH access works
-- Docker installed on EC2
-- EC2 IAM role attached for ECR read-only access
-- backend image pulled and running on EC2
-- backend `/health` works inside EC2
-- backend `/docs` is accessible from public browser
-- frontend image pulled and running on EC2
-- frontend is accessible from public browser
-- frontend nginx forwards `/api/*` to backend
-
-Current ECR images:
-
-```text
-281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
-281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
+```bash
+aws ecr get-login-password --region eu-central-1 | docker login --username AWS --password-stdin 281639842123.dkr.ecr.eu-central-1.amazonaws.com
 ```
 
-Current public checks:
+Pull backend:
+
+```bash
+docker pull 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
+```
+
+Run backend:
+
+```bash
+docker run -d \
+  --name rag-chatbot-backend \
+  --restart unless-stopped \
+  -p 8000:8000 \
+  -e LLM_PROVIDER=groq \
+  -e GROQ_API_KEY="your_groq_key_here" \
+  -e GROQ_MODEL=llama-3.1-8b-instant \
+  -e EMBEDDING_PROVIDER=hash \
+  281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
+```
+
+Explanation:
 
 ```text
-Backend API docs:
+-d:
+  Run container in background.
+
+--name rag-chatbot-backend:
+  Gives container a name.
+
+--restart unless-stopped:
+  Restarts container automatically after EC2 reboot.
+
+-p 8000:8000:
+  Maps EC2 port 8000 to container port 8000.
+
+-e:
+  Passes environment variables into the container.
+```
+
+Check running containers:
+
+```bash
+docker ps
+```
+
+Test inside EC2:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected:
+
+```json
+{"status":"ok"}
+```
+
+Test from browser:
+
+```text
 http://13.49.241.90:8000/docs
-
-Frontend app:
-http://13.49.241.90
 ```
 
-Current EC2 container architecture:
+---
 
-```text
-Browser
-  -> EC2 public IP on port 80
-  -> frontend nginx container
-  -> /api/* proxy
-  -> backend FastAPI container on port 8000
+## 18. Pull And Run Frontend On EC2
+
+Pull frontend:
+
+```bash
+docker pull 281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-frontend:latest
 ```
 
-Important Docker networking lesson:
-
-The frontend nginx config uses:
-
-```nginx
-proxy_pass http://backend:8000/;
-```
-
-So the frontend container must be able to resolve `backend` inside Docker.
-This can be done by naming the backend container `backend`, or by connecting
-the existing backend container to the frontend network with the alias
-`backend`.
-
-Example:
+Create Docker network:
 
 ```bash
 docker network create rag-network
+```
+
+Why:
+
+```text
+The frontend nginx container needs to call backend by the name backend.
+Docker networks allow containers to find each other by name or alias.
+```
+
+Connect existing backend with alias:
+
+```bash
 docker network connect --alias backend rag-network rag-chatbot-backend
+```
+
+Why:
+
+```text
+The existing backend container is named rag-chatbot-backend.
+nginx expects backend.
+The alias makes rag-chatbot-backend reachable as backend.
+```
+
+Run frontend:
+
+```bash
 docker run -d \
   --name frontend \
   --restart unless-stopped \
@@ -852,54 +1043,126 @@ docker run -d \
 Test from EC2:
 
 ```bash
-curl http://localhost:8000/health
+curl http://localhost
 curl http://localhost/api/health
 ```
 
 Expected:
 
-```json
-{"status":"ok"}
+```text
+curl http://localhost should return HTML.
+curl http://localhost/api/health should return {"status":"ok"}.
+```
+
+Test from browser:
+
+```text
+http://13.49.241.90
 ```
 
 ---
 
-## 16. Next Process: CI/CD Deployment
+## 19. Useful Docker Commands On EC2
 
-Current deployment is manual:
+Show running containers:
 
-```text
-Local build
-  -> docker tag
-  -> docker push to ECR
-  -> SSH into EC2
-  -> docker pull
-  -> restart containers
+```bash
+docker ps
 ```
 
-The next goal is automatic deployment:
+Show all containers:
 
-```text
-git push to master
-  -> GitHub Actions runs tests
-  -> builds backend and frontend Docker images
-  -> logs in to AWS ECR
-  -> pushes images to ECR
-  -> connects to EC2 over SSH
-  -> pulls latest images
-  -> restarts containers
-  -> verifies health endpoint
+```bash
+docker ps -a
 ```
 
-Why this matters:
+Show images:
 
-- This is the standard CI/CD pattern used in real projects.
-- Developers deploy by pushing code, not by manually running server commands.
-- Tests protect the deployment from broken code.
-- ECR stores versioned deployable images.
-- EC2 runs the latest approved image.
+```bash
+docker images
+```
 
-Required GitHub secrets:
+Show logs:
+
+```bash
+docker logs backend
+docker logs frontend
+docker logs rag-chatbot-backend
+```
+
+Stop container:
+
+```bash
+docker stop frontend
+```
+
+Remove container:
+
+```bash
+docker rm frontend
+```
+
+Remove unused Docker data:
+
+```bash
+docker system prune -af --volumes
+```
+
+Check disk:
+
+```bash
+df -h
+docker system df
+```
+
+---
+
+## 20. Disk Space Problem We Hit
+
+Error:
+
+```text
+no space left on device
+```
+
+Cause:
+
+```text
+The backend image originally pulled heavy ML dependencies.
+The log showed NVIDIA CUDA files like libcublasLt.so.
+This happened because sentence-transformers/PyTorch dependencies were too large.
+```
+
+Fix:
+
+```text
+Use EMBEDDING_PROVIDER=hash for this deployment.
+Remove unused heavy embedding dependencies from backend/requirements.txt.
+Rebuild and push a smaller backend image.
+```
+
+Why:
+
+```text
+Free-tier EC2 storage is small.
+Large ML images can fill the disk before extraction finishes.
+```
+
+---
+
+## 21. GitHub Secrets For CI/CD
+
+GitHub Secrets location:
+
+```text
+GitHub repo
+  -> Settings
+  -> Secrets and variables
+  -> Actions
+  -> New repository secret
+```
+
+Secrets added:
 
 ```text
 AWS_ACCESS_KEY_ID
@@ -912,90 +1175,234 @@ EC2_SSH_KEY
 GROQ_API_KEY
 ```
 
-Recommended values:
+Values:
 
 ```text
 AWS_REGION=eu-central-1
 AWS_ACCOUNT_ID=281639842123
 EC2_USER=ubuntu
 EC2_HOST=current EC2 public IPv4 address
+EC2_SSH_KEY=full private key content from rag-chatbot-key.pem
+GROQ_API_KEY=your Groq API key
+```
+
+Why:
+
+```text
+GitHub Actions needs AWS credentials to push images to ECR.
+GitHub Actions needs SSH key and EC2 host to deploy to EC2.
+Secrets keep these values out of source code.
 ```
 
 Important:
 
-If the EC2 instance is stopped and started again, the public IPv4 address may
-change unless an Elastic IP is attached. When that happens, update `EC2_HOST`
-in GitHub secrets.
-
-High-level workflow jobs to add later:
-
 ```text
-1. backend-tests
-2. frontend-build
-3. docker-build
-4. deploy-to-ec2
+If EC2 public IP changes, update EC2_HOST.
+If the private key is copied incorrectly, SSH deployment fails.
 ```
-
-The current CI already has the first three learning pieces. The next work is
-adding AWS login, ECR push, and EC2 restart commands.
 
 ---
 
-## 17. Useful Cleanup Commands
+## 22. GitHub Actions CD Job
 
-Stop local Compose:
+CD means Continuous Deployment.
 
-```powershell
-docker compose down
-```
-
-Delete local Compose volumes:
-
-```powershell
-docker compose down -v
-```
-
-Stop EC2 instance:
+Purpose:
 
 ```text
-EC2 Console -> Instances -> select instance -> Instance state -> Stop
+After tests pass on master, automatically build images, push to ECR,
+SSH into EC2, pull latest images, and restart containers.
 ```
 
-Terminate EC2 instance:
+Current deploy flow:
 
 ```text
-EC2 Console -> Instances -> select instance -> Instance state -> Terminate
+git push origin master
+  -> GitHub Actions starts
+  -> backend tests pass
+  -> frontend build passes
+  -> Docker builds pass
+  -> deploy job builds and pushes ECR images
+  -> deploy job SSHs into EC2
+  -> EC2 pulls latest images
+  -> containers restart
+  -> health checks run
 ```
 
-Delete ECR repository:
+Command to commit workflow changes:
+
+```powershell
+git status --short
+git add .github/workflows/ci.yml docs/cloud-deployment-notes.md
+git commit -m "Add EC2 deployment workflow"
+git push origin master
+```
+
+Watch deployment:
+
+```text
+GitHub repo
+  -> Actions
+  -> CI
+  -> latest run
+```
+
+Common GitHub Actions SSH error:
+
+```text
+ssh: connect to host ... port 22: Connection timed out
+```
+
+Cause:
+
+```text
+EC2 Security Group allows SSH only from your IP.
+GitHub Actions runs from GitHub servers, so it is blocked.
+```
+
+Learning fix:
+
+```text
+Temporarily allow SSH 22 from 0.0.0.0/0.
+Then re-run failed jobs.
+```
+
+Better future fixes:
+
+```text
+Use AWS Systems Manager instead of SSH.
+Use a self-hosted GitHub runner on EC2.
+Restrict SSH more carefully.
+```
+
+---
+
+## 23. Why ECR Is Used Instead Of Direct EC2 Build
+
+You can deploy directly to EC2 without ECR.
+
+Direct EC2 deployment:
+
+```text
+GitHub Actions
+  -> SSH into EC2
+  -> git pull
+  -> docker build on EC2
+  -> restart containers
+```
+
+ECR deployment:
+
+```text
+GitHub Actions
+  -> build Docker images
+  -> push images to ECR
+  -> SSH into EC2
+  -> docker pull images
+  -> restart containers
+```
+
+Why ECR is better for this project:
+
+```text
+EC2 does less work.
+Small free-tier EC2 avoids heavy image builds.
+Images are stored as deployable artifacts.
+Rollback is easier.
+This is closer to real production practice.
+ECR knowledge transfers to ECS, EKS, and other cloud deployments.
+```
+
+---
+
+## 24. Cost Safety
+
+AWS services that can cost money:
+
+```text
+EC2 running instance
+EBS storage
+Public IPv4 address
+ECR image storage
+CloudWatch logs
+Data transfer
+Elastic IP if unused
+```
+
+Recommended habits:
+
+```text
+Set AWS budget alerts.
+Stop or terminate EC2 when not learning.
+Delete unused ECR images.
+Avoid load balancers until you understand pricing.
+Keep storage and instance size small while learning.
+```
+
+Stop EC2:
+
+```text
+AWS Console
+  -> EC2
+  -> Instances
+  -> select instance
+  -> Instance state
+  -> Stop instance
+```
+
+Terminate EC2:
+
+```text
+AWS Console
+  -> EC2
+  -> Instances
+  -> select instance
+  -> Instance state
+  -> Terminate instance
+```
+
+Delete ECR repositories:
 
 ```powershell
 aws ecr delete-repository --repository-name rag-chatbot-backend --region eu-central-1 --force
 aws ecr delete-repository --repository-name rag-chatbot-frontend --region eu-central-1 --force
 ```
 
-Warning:
-
-Deleting ECR repository removes stored images.
-
 ---
 
-## 18. Cost Safety Notes
+## 25. Learning Summary
 
-Always set budget alerts.
+You have learned and built:
 
-AWS services that can cost money:
+```text
+Dockerfile for Python backend
+Dockerfile for Vue frontend
+nginx static serving and reverse proxy
+Docker Compose local multi-container setup
+environment variables and secrets
+GitHub Actions CI
+AWS IAM user
+AWS CLI
+AWS ECR repositories
+Docker image tagging and pushing
+AWS EC2 Ubuntu server
+SSH access with key pair
+Windows SSH key permission fixes
+EC2 Security Groups
+Docker installation on EC2
+EC2 IAM role for ECR pull
+container networking
+public backend deployment
+public frontend deployment
+GitHub Actions CI/CD deployment design
+```
 
-- EC2 running instance
-- EBS storage
-- public IPv4 address
-- ECR image storage
-- CloudWatch logs
-- data transfer
+Main idea to remember:
 
-Recommended:
-
-- stop/terminate EC2 when not learning
-- delete unused ECR images
-- keep instance size free-tier eligible
-- avoid load balancers until you understand cost
+```text
+Docker packages the app.
+ECR stores the package.
+EC2 runs the package.
+GitHub Actions automates the process.
+nginx connects the browser frontend to the backend API.
+```
