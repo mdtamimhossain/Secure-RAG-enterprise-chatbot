@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from backend.src.rag_chain import ChatHistoryMessage
-from backend.src.rag_service import build_rag_service
+from backend.src.rag_service import RAGServiceSettings, build_rag_service, default_rag_settings
 
 
 @dataclass(frozen=True)
@@ -124,52 +125,64 @@ CHECKS = [
 
 
 def main() -> None:
-    service = build_rag_service(llm_client=QualityCheckLLM())
-    print("Answer quality check")
-    print(f"Documents loaded: {service.document_count}")
-    print(f"Chunks indexed: {service.chunk_count}")
-    print(f"Collection: {service.collection_name}")
-    print()
-
-    passed = 0
-    for index, check in enumerate(CHECKS, start=1):
-        response = service.rag_chain.answer_question(
-            question=check.question,
-            role=check.role,
-            top_k=3,
-            chat_history=list(check.history),
+    default_settings = default_rag_settings()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        service = build_rag_service(
+            settings=RAGServiceSettings(
+                data_dir=default_settings.data_dir,
+                persist_dir=Path(temp_dir),
+                collection_name="answer_quality_documents",
+            ),
+            llm_client=QualityCheckLLM(),
         )
-        departments = [
-            source.get("metadata", {}).get("department", "unknown")
-            for source in response.sources
-        ]
-        answer_ok = check.expected_answer_text.lower() in response.answer.lower()
-        sources_ok = _sources_match(departments, check.expected_source_department)
-        matched = answer_ok and sources_ok
-        if matched:
-            passed += 1
+        try:
+            print("Answer quality check")
+            print(f"Documents loaded: {service.document_count}")
+            print(f"Chunks indexed: {service.chunk_count}")
+            print(f"Collection: {service.collection_name}")
+            print()
 
-        print(f"{index}. {'PASS' if matched else 'FAIL'} | role={check.role}")
-        print(f"Question: {check.question}")
-        print(f"Expectation: {check.note}")
-        print(f"Answer: {response.answer}")
-        if response.sources:
-            print("Visible sources:")
-            for source_number, source in enumerate(response.sources, start=1):
-                metadata = source.get("metadata", {})
-                print(
-                    f"  {source_number}. "
-                    f"{metadata.get('filename', 'unknown')} | "
-                    f"{metadata.get('department', 'unknown')} | "
-                    f"{metadata.get('category', 'unknown')}"
+            passed = 0
+            for index, check in enumerate(CHECKS, start=1):
+                response = service.rag_chain.answer_question(
+                    question=check.question,
+                    role=check.role,
+                    top_k=3,
+                    chat_history=list(check.history),
                 )
-        else:
-            print("Visible sources: none")
-        print()
+                departments = [
+                    source.get("metadata", {}).get("department", "unknown")
+                    for source in response.sources
+                ]
+                answer_ok = check.expected_answer_text.lower() in response.answer.lower()
+                sources_ok = _sources_match(departments, check.expected_source_department)
+                matched = answer_ok and sources_ok
+                if matched:
+                    passed += 1
 
-    print(f"Result: {passed}/{len(CHECKS)} answer checks passed")
-    if passed != len(CHECKS):
-        raise SystemExit(1)
+                print(f"{index}. {'PASS' if matched else 'FAIL'} | role={check.role}")
+                print(f"Question: {check.question}")
+                print(f"Expectation: {check.note}")
+                print(f"Answer: {response.answer}")
+                if response.sources:
+                    print("Visible sources:")
+                    for source_number, source in enumerate(response.sources, start=1):
+                        metadata = source.get("metadata", {})
+                        print(
+                            f"  {source_number}. "
+                            f"{metadata.get('filename', 'unknown')} | "
+                            f"{metadata.get('department', 'unknown')} | "
+                            f"{metadata.get('category', 'unknown')}"
+                        )
+                else:
+                    print("Visible sources: none")
+                print()
+
+            print(f"Result: {passed}/{len(CHECKS)} answer checks passed")
+            if passed != len(CHECKS):
+                raise SystemExit(1)
+        finally:
+            service.rag_chain.retriever.vector_store.close()
 
 
 def _sources_match(departments: list[str], expected_department: str | None) -> bool:

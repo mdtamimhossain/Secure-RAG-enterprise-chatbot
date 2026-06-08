@@ -28,6 +28,9 @@ class ChatEvent:
     latency_ms: float
     source_count: int
     source_departments: list[str]
+    source_categories: list[str]
+    source_files: list[str]
+    history_message_count: int
     guardrail_reason: str
     error: str
     timestamp: str
@@ -41,9 +44,12 @@ class MonitoringMetrics:
     errored_chats: int
     average_latency_ms: float
     average_source_count: float
+    average_history_messages: float
     roles: dict[str, int]
     guardrail_reasons: dict[str, int]
     source_departments: dict[str, int]
+    source_categories: dict[str, int]
+    source_files: dict[str, int]
     recent_events: list[dict[str, Any]]
 
 
@@ -63,6 +69,9 @@ def log_chat_event(
     latency_ms: float,
     source_count: int = 0,
     source_departments: list[str] | None = None,
+    source_categories: list[str] | None = None,
+    source_files: list[str] | None = None,
+    history_message_count: int = 0,
     guardrail_reason: str = "",
     error: str = "",
     log_dir: str | Path | None = None,
@@ -77,6 +86,9 @@ def log_chat_event(
         latency_ms=round(latency_ms, 2),
         source_count=source_count,
         source_departments=source_departments or [],
+        source_categories=source_categories or [],
+        source_files=source_files or [],
+        history_message_count=history_message_count,
         guardrail_reason=guardrail_reason,
         error=error,
         timestamp=datetime.now(UTC).isoformat(),
@@ -125,6 +137,7 @@ def get_monitoring_metrics(log_dir: str | Path | None = None, recent_limit: int 
     errored = sum(1 for event in events if event.get("status") == "error")
     latency_values = [float(event.get("latency_ms", 0)) for event in events]
     source_values = [int(event.get("source_count", 0)) for event in events]
+    history_values = [int(event.get("history_message_count", 0)) for event in events]
 
     return MonitoringMetrics(
         total_chats=total,
@@ -133,9 +146,12 @@ def get_monitoring_metrics(log_dir: str | Path | None = None, recent_limit: int 
         errored_chats=errored,
         average_latency_ms=round(sum(latency_values) / total, 2) if total else 0,
         average_source_count=round(sum(source_values) / total, 2) if total else 0,
+        average_history_messages=round(sum(history_values) / total, 2) if total else 0,
         roles=_count_by_key(events, "role"),
         guardrail_reasons=_count_by_key(events, "guardrail_reason", skip_empty=True),
         source_departments=_count_source_departments(events),
+        source_categories=_count_list_values(events, "source_categories"),
+        source_files=_count_list_values(events, "source_files"),
         recent_events=events[-recent_limit:][::-1],
     )
 
@@ -179,8 +195,12 @@ def _count_by_key(
 
 
 def _count_source_departments(events: list[dict[str, Any]]) -> dict[str, int]:
+    return _count_list_values(events, "source_departments")
+
+
+def _count_list_values(events: list[dict[str, Any]], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for event in events:
-        for department in event.get("source_departments", []):
-            counts[department] = counts.get(department, 0) + 1
+        for value in event.get(key, []):
+            counts[value] = counts.get(value, 0) + 1
     return counts

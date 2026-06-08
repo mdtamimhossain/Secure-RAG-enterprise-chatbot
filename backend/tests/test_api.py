@@ -50,9 +50,12 @@ class ApiTests(unittest.TestCase):
             errored_chats=0,
             average_latency_ms=42.5,
             average_source_count=1.33,
+            average_history_messages=0.67,
             roles={"employee": 3},
             guardrail_reasons={"prompt_injection": 1},
             source_departments={"general": 2},
+            source_categories={"helpdesk": 1},
+            source_files={"codemars_helpdesk_support_guide.md": 1},
             recent_events=[],
         )
 
@@ -64,6 +67,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["total_chats"], 3)
         self.assertEqual(body["blocked_chats"], 1)
         self.assertEqual(body["roles"], {"employee": 3})
+        self.assertEqual(body["source_categories"], {"helpdesk": 1})
 
     def test_chat_endpoint_returns_answer(self) -> None:
         response = self.client.post(

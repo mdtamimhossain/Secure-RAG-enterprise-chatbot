@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.src.rag_service import build_rag_service
+from backend.src.rag_service import RAGServiceSettings, build_rag_service, default_rag_settings
 from backend.src.rag_chain import ChatHistoryMessage, build_retrieval_query
 
 
@@ -92,52 +93,63 @@ CHECKS = [
 
 
 def main() -> None:
-    service = build_rag_service()
-    print("Retrieval quality check")
-    print(f"Documents loaded: {service.document_count}")
-    print(f"Chunks indexed: {service.chunk_count}")
-    print(f"Collection: {service.collection_name}")
-    print()
-
-    passed = 0
-    for index, check in enumerate(CHECKS, start=1):
-        retrieval_query = build_retrieval_query(check.question, list(check.history))
-        sources = service.rag_chain.retriever.retrieve(
-            query=retrieval_query,
-            role=check.role,
-            top_k=3,
+    default_settings = default_rag_settings()
+    with tempfile.TemporaryDirectory() as temp_dir:
+        service = build_rag_service(
+            settings=RAGServiceSettings(
+                data_dir=default_settings.data_dir,
+                persist_dir=Path(temp_dir),
+                collection_name="retrieval_quality_documents",
+            )
         )
-        departments = [
-            source.get("metadata", {}).get("department", "unknown")
-            for source in sources
-        ]
-        matched = _matches_expected(departments, check.expected_department)
-        if matched:
-            passed += 1
+        try:
+            print("Retrieval quality check")
+            print(f"Documents loaded: {service.document_count}")
+            print(f"Chunks indexed: {service.chunk_count}")
+            print(f"Collection: {service.collection_name}")
+            print()
 
-        print(f"{index}. {'PASS' if matched else 'FAIL'} | role={check.role}")
-        print(f"Question: {check.question}")
-        print(f"Expectation: {check.note}")
-        if check.history:
-            print("Retrieval query:")
-            print(_indent(retrieval_query))
-        if not sources:
-            print("Sources: none")
-        else:
-            print("Sources:")
-            for source_number, source in enumerate(sources, start=1):
-                metadata = source.get("metadata", {})
-                filename = metadata.get("filename", "unknown")
-                department = metadata.get("department", "unknown")
-                category = metadata.get("category", "unknown")
-                preview = " ".join(source.get("content", "").split())[:180]
-                print(f"  {source_number}. {filename} | {department} | {category}")
-                print(f"     {preview}")
-        print()
+            passed = 0
+            for index, check in enumerate(CHECKS, start=1):
+                retrieval_query = build_retrieval_query(check.question, list(check.history))
+                sources = service.rag_chain.retriever.retrieve(
+                    query=retrieval_query,
+                    role=check.role,
+                    top_k=3,
+                )
+                departments = [
+                    source.get("metadata", {}).get("department", "unknown")
+                    for source in sources
+                ]
+                matched = _matches_expected(departments, check.expected_department)
+                if matched:
+                    passed += 1
 
-    print(f"Result: {passed}/{len(CHECKS)} retrieval checks passed")
-    if passed != len(CHECKS):
-        raise SystemExit(1)
+                print(f"{index}. {'PASS' if matched else 'FAIL'} | role={check.role}")
+                print(f"Question: {check.question}")
+                print(f"Expectation: {check.note}")
+                if check.history:
+                    print("Retrieval query:")
+                    print(_indent(retrieval_query))
+                if not sources:
+                    print("Sources: none")
+                else:
+                    print("Sources:")
+                    for source_number, source in enumerate(sources, start=1):
+                        metadata = source.get("metadata", {})
+                        filename = metadata.get("filename", "unknown")
+                        department = metadata.get("department", "unknown")
+                        category = metadata.get("category", "unknown")
+                        preview = " ".join(source.get("content", "").split())[:180]
+                        print(f"  {source_number}. {filename} | {department} | {category}")
+                        print(f"     {preview}")
+                print()
+
+            print(f"Result: {passed}/{len(CHECKS)} retrieval checks passed")
+            if passed != len(CHECKS):
+                raise SystemExit(1)
+        finally:
+            service.rag_chain.retriever.vector_store.close()
 
 
 def _matches_expected(departments: list[str], expected_department: str | None) -> bool:

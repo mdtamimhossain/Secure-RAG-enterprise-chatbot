@@ -48,9 +48,12 @@ class MetricsResponse(BaseModel):
     errored_chats: int
     average_latency_ms: float
     average_source_count: float
+    average_history_messages: float
     roles: dict[str, int]
     guardrail_reasons: dict[str, int]
     source_departments: dict[str, int]
+    source_categories: dict[str, int]
+    source_files: dict[str, int]
     recent_events: list[dict]
 
 
@@ -104,7 +107,7 @@ def chat(request: ChatRequest) -> ChatResponse:
         _log_error_chat_event(request, str(exc), _latency_ms(started_at))
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
-    source_departments = _source_departments(response.sources)
+    source_metadata = _source_metadata(response.sources)
     log_chat_event(
         question=request.question,
         role=request.role,
@@ -112,7 +115,10 @@ def chat(request: ChatRequest) -> ChatResponse:
         model=response.model,
         latency_ms=_latency_ms(started_at),
         source_count=len(response.sources),
-        source_departments=source_departments,
+        source_departments=source_metadata["departments"],
+        source_categories=source_metadata["categories"],
+        source_files=source_metadata["files"],
+        history_message_count=len(request.history),
     )
 
     return ChatResponse(
@@ -149,6 +155,7 @@ def _guardrail_response(
         model=f"Guardrails:{result.reason}",
         latency_ms=latency_ms,
         guardrail_reason=result.reason,
+        history_message_count=len(request.history),
     )
 
     return ChatResponse(
@@ -172,16 +179,30 @@ def _log_error_chat_event(request: ChatRequest, error: str, latency_ms: float) -
         model="",
         latency_ms=latency_ms,
         error=error,
+        history_message_count=len(request.history),
     )
 
 
-def _source_departments(sources: list[dict]) -> list[str]:
+def _source_metadata(sources: list[dict]) -> dict[str, list[str]]:
     departments = []
+    categories = []
+    files = []
     for source in sources:
-        department = source.get("metadata", {}).get("department")
+        metadata = source.get("metadata", {})
+        department = metadata.get("department")
         if department and department not in departments:
             departments.append(department)
-    return departments
+        category = metadata.get("category")
+        if category and category not in categories:
+            categories.append(category)
+        filename = metadata.get("filename")
+        if filename and filename not in files:
+            files.append(filename)
+    return {
+        "departments": departments,
+        "categories": categories,
+        "files": files,
+    }
 
 
 def _latency_ms(started_at: float) -> float:

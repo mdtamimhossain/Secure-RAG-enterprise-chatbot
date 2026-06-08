@@ -24,6 +24,9 @@ class MonitoringTests(unittest.TestCase):
                 latency_ms=12.345,
                 source_count=2,
                 source_departments=["general"],
+                source_categories=["helpdesk"],
+                source_files=["codemars_helpdesk_support_guide.md"],
+                history_message_count=3,
                 log_dir=temp_dir,
             )
 
@@ -33,6 +36,9 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "success")
         self.assertEqual(rows[0]["latency_ms"], 12.35)
         self.assertEqual(rows[0]["source_departments"], ["general"])
+        self.assertEqual(rows[0]["source_categories"], ["helpdesk"])
+        self.assertEqual(rows[0]["source_files"], ["codemars_helpdesk_support_guide.md"])
+        self.assertEqual(rows[0]["history_message_count"], 3)
         self.assertEqual(rows[0]["timestamp"], event.timestamp)
 
     def test_logs_guardrail_event_as_jsonl(self) -> None:
@@ -64,6 +70,9 @@ class MonitoringTests(unittest.TestCase):
                 latency_ms=100,
                 source_count=2,
                 source_departments=["general"],
+                source_categories=["helpdesk"],
+                source_files=["codemars_helpdesk_support_guide.md"],
+                history_message_count=2,
                 log_dir=temp_dir,
             )
             log_chat_event(
@@ -73,6 +82,7 @@ class MonitoringTests(unittest.TestCase):
                 model="Guardrails:prompt_injection",
                 latency_ms=50,
                 guardrail_reason="prompt_injection",
+                history_message_count=1,
                 log_dir=temp_dir,
             )
             log_chat_event(
@@ -93,9 +103,12 @@ class MonitoringTests(unittest.TestCase):
         self.assertEqual(metrics.errored_chats, 1)
         self.assertEqual(metrics.average_latency_ms, 100)
         self.assertEqual(metrics.average_source_count, 0.67)
+        self.assertEqual(metrics.average_history_messages, 1)
         self.assertEqual(metrics.roles, {"employee": 2, "finance": 1})
         self.assertEqual(metrics.guardrail_reasons, {"prompt_injection": 1})
         self.assertEqual(metrics.source_departments, {"general": 1})
+        self.assertEqual(metrics.source_categories, {"helpdesk": 1})
+        self.assertEqual(metrics.source_files, {"codemars_helpdesk_support_guide.md": 1})
 
 
 if __name__ == "__main__":
