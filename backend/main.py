@@ -7,6 +7,7 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.src.auth import DemoSession, create_demo_session, get_demo_session
+from backend.src.database import clear_user_chat_messages, get_chat_messages, save_chat_message
 from backend.src.guardrails import GuardrailResult, check_input_guardrails, check_output_guardrails
 from backend.src.monitoring import MonitoringMetrics, get_monitoring_metrics, log_chat_event, log_guardrail_event
 from backend.src.rag_chain import ChatHistoryMessage
@@ -31,6 +32,14 @@ class LoginResponse(BaseModel):
     session_token: str
     name: str
     role: str
+
+
+class StoredChatMessageResponse(BaseModel):
+    sender: str
+    text: str
+    sources: list[dict]
+    guardrail: dict | None = None
+    createdAt: str
 
 
 class SourceResponse(BaseModel):
@@ -116,10 +125,15 @@ def chat(
     started_at = perf_counter()
     session = _require_session(authorization)
     effective_role = session.role
+    save_chat_message(
+        user_id=session.user_id,
+        sender="user",
+        content=request.question,
+    )
     try:
         guardrail_result = check_input_guardrails(request.question)
         if not guardrail_result.allowed:
-            return _guardrail_response(request, effective_role, guardrail_result, _latency_ms(started_at))
+            return _guardrail_response(request, session, guardrail_result, _latency_ms(started_at))
 
         rag_service = get_rag_service()
         response = rag_service.rag_chain.answer_question(
@@ -130,7 +144,7 @@ def chat(
         )
         output_guardrail_result = check_output_guardrails(response.answer)
         if not output_guardrail_result.allowed:
-            return _guardrail_response(request, effective_role, output_guardrail_result, _latency_ms(started_at))
+            return _guardrail_response(request, session, output_guardrail_result, _latency_ms(started_at))
     except ValueError as exc:
         _log_error_chat_event(request, effective_role, str(exc), _latency_ms(started_at))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -152,7 +166,7 @@ def chat(
         history_message_count=len(request.history),
     )
 
-    return ChatResponse(
+    chat_response = ChatResponse(
         answer=response.answer,
         role=effective_role,
         model=response.model,
@@ -164,17 +178,38 @@ def chat(
             for source in response.sources
         ],
     )
+    save_chat_message(
+        user_id=session.user_id,
+        sender="assistant",
+        content=chat_response.answer,
+        sources=[source.model_dump() for source in chat_response.sources],
+        guardrail=chat_response.guardrail,
+    )
+    return chat_response
+
+
+@app.get("/chat/history", response_model=list[StoredChatMessageResponse])
+def chat_history(authorization: str | None = Header(default=None)) -> list[dict]:
+    session = _require_session(authorization)
+    return get_chat_messages(session.user_id)
+
+
+@app.delete("/chat/history")
+def clear_chat_history(authorization: str | None = Header(default=None)) -> dict[str, str]:
+    session = _require_session(authorization)
+    clear_user_chat_messages(session.user_id)
+    return {"status": "cleared"}
 
 
 def _guardrail_response(
     request: ChatRequest,
-    role: str,
+    session: DemoSession,
     result: GuardrailResult,
     latency_ms: float,
 ) -> ChatResponse:
     log_guardrail_event(
         question=request.question,
-        role=role,
+        role=session.role,
         reason=result.reason,
         stage=result.stage,
         intent=result.intent.value,
@@ -182,7 +217,7 @@ def _guardrail_response(
     )
     log_chat_event(
         question=request.question,
-        role=role,
+        role=session.role,
         status="blocked",
         model=f"Guardrails:{result.reason}",
         latency_ms=latency_ms,
@@ -190,9 +225,9 @@ def _guardrail_response(
         history_message_count=len(request.history),
     )
 
-    return ChatResponse(
+    chat_response = ChatResponse(
         answer=result.message,
-        role=role,
+        role=session.role,
         model=f"Guardrails:{result.reason}",
         sources=[],
         guardrail={
@@ -201,6 +236,14 @@ def _guardrail_response(
             "intent": result.intent.value,
         },
     )
+    save_chat_message(
+        user_id=session.user_id,
+        sender="assistant",
+        content=chat_response.answer,
+        sources=[],
+        guardrail=chat_response.guardrail,
+    )
+    return chat_response
 
 
 def _log_error_chat_event(request: ChatRequest, role: str, error: str, latency_ms: float) -> None:

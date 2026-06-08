@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sys
+import os
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -20,6 +22,9 @@ from backend.src.monitoring import MonitoringMetrics
 class ApiTests(unittest.TestCase):
     def setUp(self) -> None:
         get_rag_service.cache_clear()
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.previous_database_path = os.environ.get("RAG_DATABASE_PATH")
+        os.environ["RAG_DATABASE_PATH"] = str(Path(self.temp_dir.name) / "test.sqlite3")
         clear_demo_sessions()
         self.client = TestClient(app)
         self.chat_event_patcher = patch("backend.main.log_chat_event")
@@ -27,6 +32,11 @@ class ApiTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.chat_event_patcher.stop()
+        if self.previous_database_path is None:
+            os.environ.pop("RAG_DATABASE_PATH", None)
+        else:
+            os.environ["RAG_DATABASE_PATH"] = self.previous_database_path
+        self.temp_dir.cleanup()
 
     def test_health_endpoint(self) -> None:
         response = self.client.get("/health")
@@ -100,13 +110,14 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 401)
 
     def test_chat_endpoint_returns_answer(self) -> None:
+        headers = self._auth_headers(role="employee")
         response = self.client.post(
             "/chat",
             json={
                 "question": "What can employees read?",
                 "role": "employee",
             },
-            headers=self._auth_headers(role="employee"),
+            headers=headers,
         )
 
         self.assertEqual(response.status_code, 200)
@@ -114,6 +125,13 @@ class ApiTests(unittest.TestCase):
         self.assertIn("answer", body)
         self.assertEqual(body["role"], "employee")
         self.assertIn("sources", body)
+
+        history_response = self.client.get("/chat/history", headers=headers)
+        self.assertEqual(history_response.status_code, 200)
+        history = history_response.json()
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["sender"], "user")
+        self.assertEqual(history[1]["sender"], "assistant")
 
     def test_chat_endpoint_accepts_history(self) -> None:
         response = self.client.post(
@@ -131,6 +149,21 @@ class ApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("answer", response.json())
+
+    def test_clear_chat_history_removes_saved_messages(self) -> None:
+        headers = self._auth_headers(role="employee")
+        self.client.post(
+            "/chat",
+            json={"question": "What can employees read?", "role": "employee"},
+            headers=headers,
+        )
+
+        clear_response = self.client.delete("/chat/history", headers=headers)
+        history_response = self.client.get("/chat/history", headers=headers)
+
+        self.assertEqual(clear_response.status_code, 200)
+        self.assertEqual(clear_response.json(), {"status": "cleared"})
+        self.assertEqual(history_response.json(), [])
 
     def test_chat_endpoint_returns_clear_runtime_error(self) -> None:
         class BrokenChain:

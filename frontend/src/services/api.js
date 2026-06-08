@@ -37,6 +37,37 @@ export async function sendChatMessage({ question, role, history = [], sessionTok
   return body
 }
 
+export async function getChatHistory({ sessionToken }) {
+  const response = await fetch(`${API_BASE_URL}/chat/history`, {
+    headers: {
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+    },
+  })
+  const body = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(body.detail || 'Unable to load chat history.')
+  }
+
+  return body
+}
+
+export async function clearChatHistory({ sessionToken }) {
+  const response = await fetch(`${API_BASE_URL}/chat/history`, {
+    method: 'DELETE',
+    headers: {
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+    },
+  })
+  const body = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(body.detail || 'Unable to clear chat history.')
+  }
+
+  return body
+}
+
 export async function getServiceStatus() {
   const response = await fetch(`${API_BASE_URL}/status`)
   const body = await response.json().catch(() => ({}))

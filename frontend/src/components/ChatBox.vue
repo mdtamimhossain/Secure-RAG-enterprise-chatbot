@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { FileText, Plus, Search, Send, ShieldCheck } from '@lucide/vue'
-import { sendChatMessage } from '../services/api'
+import { clearChatHistory, getChatHistory, sendChatMessage } from '../services/api'
 
 const props = defineProps({
   role: {
@@ -28,34 +28,19 @@ const error = ref('')
 const messageList = ref(null)
 const messages = ref([])
 
-const storageKey = computed(
-  () => `secure-rag-chat:${props.userName.trim().toLowerCase()}:${props.role}`,
-)
-
 const canSend = computed(() => question.value.trim().length > 0 && !loading.value)
 const hasConversation = computed(() => messages.value.length > 0)
 
 onMounted(() => {
   loadSavedMessages()
-  scrollToBottom()
 })
 
 watch(
-  () => storageKey.value,
+  () => props.sessionToken,
   () => {
     loadSavedMessages()
     error.value = ''
-    scrollToBottom()
   },
-)
-
-watch(
-  messages,
-  () => {
-    saveMessages()
-    scrollToBottom()
-  },
-  { deep: true },
 )
 
 async function submitQuestion() {
@@ -66,6 +51,7 @@ async function submitQuestion() {
   question.value = ''
   error.value = ''
   messages.value.push({ sender: 'user', text: currentQuestion, createdAt: timestamp() })
+  scrollToBottom()
   loading.value = true
 
   try {
@@ -83,6 +69,7 @@ async function submitQuestion() {
       guardrail: response.guardrail || null,
       createdAt: timestamp(),
     })
+    scrollToBottom()
   } catch (err) {
     error.value = err.message
   } finally {
@@ -94,7 +81,13 @@ function useSuggestion(text) {
   question.value = text
 }
 
-function clearChat() {
+async function clearChat() {
+  try {
+    await clearChatHistory({ sessionToken: props.sessionToken })
+  } catch (err) {
+    error.value = err.message
+    return
+  }
   messages.value = []
   error.value = ''
 }
@@ -109,17 +102,18 @@ function recentHistory() {
     }))
 }
 
-function loadSavedMessages() {
-  const saved = window.localStorage.getItem(storageKey.value)
-  if (!saved) {
+async function loadSavedMessages() {
+  if (!props.sessionToken) {
     messages.value = []
     return
   }
 
   try {
-    const parsed = JSON.parse(saved)
-    messages.value = Array.isArray(parsed) ? normalizeSavedMessages(parsed) : []
-  } catch {
+    const history = await getChatHistory({ sessionToken: props.sessionToken })
+    messages.value = Array.isArray(history) ? normalizeSavedMessages(history) : []
+    scrollToBottom()
+  } catch (err) {
+    error.value = err.message
     messages.value = []
   }
 }
@@ -134,10 +128,6 @@ function normalizeSavedMessages(savedMessages) {
   }
 
   return savedMessages
-}
-
-function saveMessages() {
-  window.localStorage.setItem(storageKey.value, JSON.stringify(messages.value))
 }
 
 function labelFor(source) {
