@@ -92,6 +92,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["name"], "Md Tamim Hossain")
         self.assertEqual(body["role"], "finance")
         self.assertTrue(body["session_token"])
+        self.assertGreaterEqual(body["active_conversation_id"], 1)
 
     def test_login_rejects_unknown_role(self) -> None:
         response = self.client.post(
@@ -164,6 +165,72 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(clear_response.status_code, 200)
         self.assertEqual(clear_response.json(), {"status": "cleared"})
         self.assertEqual(history_response.json(), [])
+
+    def test_can_create_and_list_conversations(self) -> None:
+        headers = self._auth_headers(role="employee")
+
+        create_response = self.client.post(
+            "/conversations",
+            json={"title": "Leave policy chat"},
+            headers=headers,
+        )
+        list_response = self.client.get("/conversations", headers=headers)
+
+        self.assertEqual(create_response.status_code, 200)
+        created = create_response.json()
+        self.assertEqual(created["title"], "Leave policy chat")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertTrue(any(item["id"] == created["id"] for item in list_response.json()))
+
+    def test_chat_history_is_scoped_to_conversation(self) -> None:
+        headers = self._auth_headers(role="employee")
+        first = self.client.post(
+            "/conversations",
+            json={"title": "First chat"},
+            headers=headers,
+        ).json()
+        second = self.client.post(
+            "/conversations",
+            json={"title": "Second chat"},
+            headers=headers,
+        ).json()
+
+        self.client.post(
+            "/chat",
+            json={
+                "question": "What can employees read?",
+                "role": "employee",
+                "conversation_id": first["id"],
+            },
+            headers=headers,
+        )
+        first_history = self.client.get(
+            f"/chat/history?conversation_id={first['id']}",
+            headers=headers,
+        ).json()
+        second_history = self.client.get(
+            f"/chat/history?conversation_id={second['id']}",
+            headers=headers,
+        ).json()
+
+        self.assertEqual(len(first_history), 2)
+        self.assertEqual(second_history, [])
+
+    def test_cannot_access_another_users_conversation(self) -> None:
+        first_headers = self._auth_headers(role="employee", name="First User")
+        second_headers = self._auth_headers(role="employee", name="Second User")
+        conversation = self.client.post(
+            "/conversations",
+            json={"title": "Private chat"},
+            headers=first_headers,
+        ).json()
+
+        response = self.client.get(
+            f"/chat/history?conversation_id={conversation['id']}",
+            headers=second_headers,
+        )
+
+        self.assertEqual(response.status_code, 404)
 
     def test_chat_endpoint_returns_clear_runtime_error(self) -> None:
         class BrokenChain:
@@ -271,10 +338,10 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["role"], "employee")
         self.assertEqual(service.rag_chain.recorded_role, "employee")
 
-    def _auth_headers(self, role: str = "employee") -> dict[str, str]:
+    def _auth_headers(self, role: str = "employee", name: str = "Test User") -> dict[str, str]:
         response = self.client.post(
             "/login",
-            json={"name": "Test User", "role": role},
+            json={"name": name, "role": role},
         )
         token = response.json()["session_token"]
         return {"Authorization": f"Bearer {token}"}

@@ -25,6 +25,7 @@ const loginName = ref('')
 const loginRole = ref('employee')
 const selectedRole = ref('employee')
 const sessionToken = ref('')
+const activeConversationId = ref(null)
 const activeView = ref('workspace')
 const status = ref(null)
 const statusError = ref('')
@@ -173,6 +174,7 @@ async function startSession() {
     selectedRole.value = session.role
     loginName.value = session.name
     sessionToken.value = session.session_token
+    activeConversationId.value = session.active_conversation_id
     activeView.value = 'workspace'
     sessionStarted.value = true
   } catch (error) {
@@ -185,6 +187,7 @@ async function startSession() {
 function signOut() {
   sessionStarted.value = false
   sessionToken.value = ''
+  activeConversationId.value = null
 }
 
 function switchView(viewId) {
@@ -427,6 +430,7 @@ onMounted(async () => {
             :role-label="activeProfile.label"
             :user-name="displayName"
             :session-token="sessionToken"
+            :initial-conversation-id="activeConversationId"
           />
         </div>
       </section>

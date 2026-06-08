@@ -7,7 +7,15 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.src.auth import DemoSession, create_demo_session, get_demo_session
-from backend.src.database import clear_user_chat_messages, get_chat_messages, save_chat_message
+from backend.src.database import (
+    clear_conversation_messages,
+    create_conversation,
+    get_chat_messages,
+    get_conversation,
+    get_or_create_latest_conversation,
+    list_conversations,
+    save_chat_message,
+)
 from backend.src.guardrails import GuardrailResult, check_input_guardrails, check_output_guardrails
 from backend.src.monitoring import MonitoringMetrics, get_monitoring_metrics, log_chat_event, log_guardrail_event
 from backend.src.rag_chain import ChatHistoryMessage
@@ -21,6 +29,7 @@ class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1)
     role: str = "employee"
     history: list[ChatHistoryMessage] = Field(default_factory=list)
+    conversation_id: int | None = None
 
 
 class LoginRequest(BaseModel):
@@ -32,6 +41,18 @@ class LoginResponse(BaseModel):
     session_token: str
     name: str
     role: str
+    active_conversation_id: int
+
+
+class ConversationResponse(BaseModel):
+    id: int
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class CreateConversationRequest(BaseModel):
+    title: str = "New chat"
 
 
 class StoredChatMessageResponse(BaseModel):
@@ -114,6 +135,36 @@ def login(request: LoginRequest) -> LoginResponse:
         session_token=session.token,
         name=session.name,
         role=session.role,
+        active_conversation_id=get_or_create_latest_conversation(session.user_id).id,
+    )
+
+
+@app.get("/conversations", response_model=list[ConversationResponse])
+def conversations(authorization: str | None = Header(default=None)) -> list[ConversationResponse]:
+    session = _require_session(authorization)
+    return [
+        ConversationResponse(
+            id=conversation.id,
+            title=conversation.title,
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
+        )
+        for conversation in list_conversations(session.user_id)
+    ]
+
+
+@app.post("/conversations", response_model=ConversationResponse)
+def new_conversation(
+    request: CreateConversationRequest,
+    authorization: str | None = Header(default=None),
+) -> ConversationResponse:
+    session = _require_session(authorization)
+    conversation = create_conversation(session.user_id, title=request.title)
+    return ConversationResponse(
+        id=conversation.id,
+        title=conversation.title,
+        created_at=conversation.created_at,
+        updated_at=conversation.updated_at,
     )
 
 
@@ -125,15 +176,17 @@ def chat(
     started_at = perf_counter()
     session = _require_session(authorization)
     effective_role = session.role
+    conversation = _resolve_conversation(session, request.conversation_id)
     save_chat_message(
         user_id=session.user_id,
+        conversation_id=conversation.id,
         sender="user",
         content=request.question,
     )
     try:
         guardrail_result = check_input_guardrails(request.question)
         if not guardrail_result.allowed:
-            return _guardrail_response(request, session, guardrail_result, _latency_ms(started_at))
+            return _guardrail_response(request, session, conversation.id, guardrail_result, _latency_ms(started_at))
 
         rag_service = get_rag_service()
         response = rag_service.rag_chain.answer_question(
@@ -144,7 +197,7 @@ def chat(
         )
         output_guardrail_result = check_output_guardrails(response.answer)
         if not output_guardrail_result.allowed:
-            return _guardrail_response(request, session, output_guardrail_result, _latency_ms(started_at))
+            return _guardrail_response(request, session, conversation.id, output_guardrail_result, _latency_ms(started_at))
     except ValueError as exc:
         _log_error_chat_event(request, effective_role, str(exc), _latency_ms(started_at))
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -180,6 +233,7 @@ def chat(
     )
     save_chat_message(
         user_id=session.user_id,
+        conversation_id=conversation.id,
         sender="assistant",
         content=chat_response.answer,
         sources=[source.model_dump() for source in chat_response.sources],
@@ -189,21 +243,30 @@ def chat(
 
 
 @app.get("/chat/history", response_model=list[StoredChatMessageResponse])
-def chat_history(authorization: str | None = Header(default=None)) -> list[dict]:
+def chat_history(
+    conversation_id: int | None = None,
+    authorization: str | None = Header(default=None),
+) -> list[dict]:
     session = _require_session(authorization)
-    return get_chat_messages(session.user_id)
+    conversation = _resolve_conversation(session, conversation_id)
+    return get_chat_messages(session.user_id, conversation.id)
 
 
 @app.delete("/chat/history")
-def clear_chat_history(authorization: str | None = Header(default=None)) -> dict[str, str]:
+def clear_chat_history(
+    conversation_id: int | None = None,
+    authorization: str | None = Header(default=None),
+) -> dict[str, str]:
     session = _require_session(authorization)
-    clear_user_chat_messages(session.user_id)
+    conversation = _resolve_conversation(session, conversation_id)
+    clear_conversation_messages(session.user_id, conversation.id)
     return {"status": "cleared"}
 
 
 def _guardrail_response(
     request: ChatRequest,
     session: DemoSession,
+    conversation_id: int,
     result: GuardrailResult,
     latency_ms: float,
 ) -> ChatResponse:
@@ -238,12 +301,23 @@ def _guardrail_response(
     )
     save_chat_message(
         user_id=session.user_id,
+        conversation_id=conversation_id,
         sender="assistant",
         content=chat_response.answer,
         sources=[],
         guardrail=chat_response.guardrail,
     )
     return chat_response
+
+
+def _resolve_conversation(session: DemoSession, conversation_id: int | None):
+    if conversation_id is None:
+        return get_or_create_latest_conversation(session.user_id)
+
+    conversation = get_conversation(conversation_id, session.user_id)
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return conversation
 
 
 def _log_error_chat_event(request: ChatRequest, role: str, error: str, latency_ms: float) -> None:

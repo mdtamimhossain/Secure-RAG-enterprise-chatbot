@@ -44,18 +44,31 @@ def initialize_database(connection: sqlite3.Connection) -> None:
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
 
+        CREATE TABLE IF NOT EXISTS conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+
         CREATE TABLE IF NOT EXISTS chat_messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
+            conversation_id INTEGER,
             sender TEXT NOT NULL,
             content TEXT NOT NULL,
             sources_json TEXT NOT NULL DEFAULT '[]',
             guardrail_json TEXT,
             created_at TEXT NOT NULL,
-            FOREIGN KEY(user_id) REFERENCES users(id)
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(conversation_id) REFERENCES conversations(id)
         );
         """
     )
+    if not _column_exists(connection, "chat_messages", "conversation_id"):
+        connection.execute("ALTER TABLE chat_messages ADD COLUMN conversation_id INTEGER")
     connection.commit()
 
 
@@ -78,6 +91,20 @@ class StoredUser:
 class StoredSession:
     token: str
     user: StoredUser
+
+
+@dataclass(frozen=True)
+class StoredConversation:
+    id: int
+    user_id: int
+    title: str
+    created_at: str
+    updated_at: str
+
+
+def _column_exists(connection: sqlite3.Connection, table_name: str, column_name: str) -> bool:
+    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return any(row["name"] == column_name for row in rows)
 
 
 def get_or_create_user(name: str, role: str, database_path: str | Path | None = None) -> StoredUser:
@@ -118,6 +145,92 @@ def create_session(token: str, user: StoredUser, database_path: str | Path | Non
         connection.close()
 
 
+def create_conversation(
+    user_id: int,
+    title: str = "New chat",
+    database_path: str | Path | None = None,
+) -> StoredConversation:
+    timestamp = now_iso()
+    connection = get_connection(database_path)
+    try:
+        cursor = connection.execute(
+            """
+            INSERT INTO conversations (user_id, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (user_id, title, timestamp, timestamp),
+        )
+        connection.commit()
+        return StoredConversation(
+            id=cursor.lastrowid,
+            user_id=user_id,
+            title=title,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+    finally:
+        connection.close()
+
+
+def get_conversation(
+    conversation_id: int,
+    user_id: int,
+    database_path: str | Path | None = None,
+) -> StoredConversation | None:
+    connection = get_connection(database_path)
+    try:
+        row = connection.execute(
+            """
+            SELECT id, user_id, title, created_at, updated_at
+            FROM conversations
+            WHERE id = ? AND user_id = ?
+            """,
+            (conversation_id, user_id),
+        ).fetchone()
+        if not row:
+            return None
+        return _conversation_from_row(row)
+    finally:
+        connection.close()
+
+
+def list_conversations(user_id: int, database_path: str | Path | None = None) -> list[StoredConversation]:
+    connection = get_connection(database_path)
+    try:
+        rows = connection.execute(
+            """
+            SELECT id, user_id, title, created_at, updated_at
+            FROM conversations
+            WHERE user_id = ?
+            ORDER BY updated_at DESC, id DESC
+            """,
+            (user_id,),
+        ).fetchall()
+        return [_conversation_from_row(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def get_or_create_latest_conversation(
+    user_id: int,
+    database_path: str | Path | None = None,
+) -> StoredConversation:
+    conversations = list_conversations(user_id, database_path)
+    if conversations:
+        return conversations[0]
+    return create_conversation(user_id, database_path=database_path)
+
+
+def _conversation_from_row(row: sqlite3.Row) -> StoredConversation:
+    return StoredConversation(
+        id=row["id"],
+        user_id=row["user_id"],
+        title=row["title"],
+        created_at=row["created_at"],
+        updated_at=row["updated_at"],
+    )
+
+
 def get_session(token: str, database_path: str | Path | None = None) -> StoredSession | None:
     connection = get_connection(database_path)
     try:
@@ -148,6 +261,7 @@ def get_session(token: str, database_path: str | Path | None = None) -> StoredSe
 def save_chat_message(
     *,
     user_id: int,
+    conversation_id: int,
     sender: str,
     content: str,
     sources: list[dict[str, Any]] | None = None,
@@ -159,11 +273,12 @@ def save_chat_message(
         connection.execute(
             """
             INSERT INTO chat_messages
-                (user_id, sender, content, sources_json, guardrail_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (user_id, conversation_id, sender, content, sources_json, guardrail_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
+                conversation_id,
                 sender,
                 content,
                 json.dumps(sources or []),
@@ -171,22 +286,30 @@ def save_chat_message(
                 now_iso(),
             ),
         )
+        connection.execute(
+            "UPDATE conversations SET updated_at = ? WHERE id = ? AND user_id = ?",
+            (now_iso(), conversation_id, user_id),
+        )
         connection.commit()
     finally:
         connection.close()
 
 
-def get_chat_messages(user_id: int, database_path: str | Path | None = None) -> list[dict[str, Any]]:
+def get_chat_messages(
+    user_id: int,
+    conversation_id: int,
+    database_path: str | Path | None = None,
+) -> list[dict[str, Any]]:
     connection = get_connection(database_path)
     try:
         rows = connection.execute(
             """
             SELECT sender, content, sources_json, guardrail_json, created_at
             FROM chat_messages
-            WHERE user_id = ?
+            WHERE user_id = ? AND conversation_id = ?
             ORDER BY id ASC
             """,
-            (user_id,),
+            (user_id, conversation_id),
         ).fetchall()
     finally:
         connection.close()
@@ -205,10 +328,21 @@ def get_chat_messages(user_id: int, database_path: str | Path | None = None) -> 
     return messages
 
 
-def clear_user_chat_messages(user_id: int, database_path: str | Path | None = None) -> None:
+def clear_conversation_messages(
+    user_id: int,
+    conversation_id: int,
+    database_path: str | Path | None = None,
+) -> None:
     connection = get_connection(database_path)
     try:
-        connection.execute("DELETE FROM chat_messages WHERE user_id = ?", (user_id,))
+        connection.execute(
+            "DELETE FROM chat_messages WHERE user_id = ? AND conversation_id = ?",
+            (user_id, conversation_id),
+        )
+        connection.execute(
+            "UPDATE conversations SET updated_at = ? WHERE id = ? AND user_id = ?",
+            (now_iso(), conversation_id, user_id),
+        )
         connection.commit()
     finally:
         connection.close()

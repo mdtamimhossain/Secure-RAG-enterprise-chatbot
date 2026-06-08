@@ -18,14 +18,38 @@ export async function loginDemoUser({ name, role }) {
   return body
 }
 
-export async function sendChatMessage({ question, role, history = [], sessionToken }) {
+export async function createConversation({ sessionToken, title = 'New chat' }) {
+  const response = await fetch(`${API_BASE_URL}/conversations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+    },
+    body: JSON.stringify({ title }),
+  })
+  const body = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(body.detail || 'Unable to create conversation.')
+  }
+
+  return body
+}
+
+export async function sendChatMessage({
+  question,
+  role,
+  history = [],
+  sessionToken,
+  conversationId,
+}) {
   const response = await fetch(`${API_BASE_URL}/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
     },
-    body: JSON.stringify({ question, role, history }),
+    body: JSON.stringify({ question, role, history, conversation_id: conversationId }),
   })
 
   const body = await response.json().catch(() => ({}))
@@ -37,8 +61,9 @@ export async function sendChatMessage({ question, role, history = [], sessionTok
   return body
 }
 
-export async function getChatHistory({ sessionToken }) {
-  const response = await fetch(`${API_BASE_URL}/chat/history`, {
+export async function getChatHistory({ sessionToken, conversationId }) {
+  const params = conversationId ? `?conversation_id=${conversationId}` : ''
+  const response = await fetch(`${API_BASE_URL}/chat/history${params}`, {
     headers: {
       ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
     },
@@ -52,8 +77,9 @@ export async function getChatHistory({ sessionToken }) {
   return body
 }
 
-export async function clearChatHistory({ sessionToken }) {
-  const response = await fetch(`${API_BASE_URL}/chat/history`, {
+export async function clearChatHistory({ sessionToken, conversationId }) {
+  const params = conversationId ? `?conversation_id=${conversationId}` : ''
+  const response = await fetch(`${API_BASE_URL}/chat/history${params}`, {
     method: 'DELETE',
     headers: {
       ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),

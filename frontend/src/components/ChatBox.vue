@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { FileText, Plus, Search, Send, ShieldCheck } from '@lucide/vue'
-import { clearChatHistory, getChatHistory, sendChatMessage } from '../services/api'
+import { createConversation, getChatHistory, sendChatMessage } from '../services/api'
 
 const props = defineProps({
   role: {
@@ -20,6 +20,10 @@ const props = defineProps({
     type: String,
     required: true,
   },
+  initialConversationId: {
+    type: Number,
+    default: null,
+  },
 })
 
 const question = ref('')
@@ -27,6 +31,7 @@ const loading = ref(false)
 const error = ref('')
 const messageList = ref(null)
 const messages = ref([])
+const conversationId = ref(props.initialConversationId)
 
 const canSend = computed(() => question.value.trim().length > 0 && !loading.value)
 const hasConversation = computed(() => messages.value.length > 0)
@@ -36,8 +41,9 @@ onMounted(() => {
 })
 
 watch(
-  () => props.sessionToken,
+  () => [props.sessionToken, props.initialConversationId],
   () => {
+    conversationId.value = props.initialConversationId
     loadSavedMessages()
     error.value = ''
   },
@@ -60,6 +66,7 @@ async function submitQuestion() {
       role: props.role,
       history: chatHistory,
       sessionToken: props.sessionToken,
+      conversationId: conversationId.value,
     })
 
     messages.value.push({
@@ -83,7 +90,11 @@ function useSuggestion(text) {
 
 async function clearChat() {
   try {
-    await clearChatHistory({ sessionToken: props.sessionToken })
+    const conversation = await createConversation({
+      sessionToken: props.sessionToken,
+      title: 'New chat',
+    })
+    conversationId.value = conversation.id
   } catch (err) {
     error.value = err.message
     return
@@ -103,13 +114,16 @@ function recentHistory() {
 }
 
 async function loadSavedMessages() {
-  if (!props.sessionToken) {
+  if (!props.sessionToken || !conversationId.value) {
     messages.value = []
     return
   }
 
   try {
-    const history = await getChatHistory({ sessionToken: props.sessionToken })
+    const history = await getChatHistory({
+      sessionToken: props.sessionToken,
+      conversationId: conversationId.value,
+    })
     messages.value = Array.isArray(history) ? normalizeSavedMessages(history) : []
     scrollToBottom()
   } catch (err) {
