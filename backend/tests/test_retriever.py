@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from backend.src.chunking import DocumentChunk
 from backend.src.embeddings import HashEmbeddingModel, embed_chunks
-from backend.src.retriever import Retriever
+from backend.src.retriever import Retriever, prioritize_role_specific_results
 from backend.src.vector_store import ChromaVectorStore
 
 
@@ -104,6 +104,20 @@ class RetrieverTests(unittest.TestCase):
 
         self.assertNotIn("finance", employee_departments)
         self.assertIn("finance", finance_departments)
+
+    def test_role_specific_results_are_ranked_before_general_results(self) -> None:
+        results = [
+            {"metadata": {"department": "general", "filename": "codemars_employee_handbook.md"}},
+            {"metadata": {"department": "hr", "filename": "codemars_hr_leave_policy.md"}},
+            {"metadata": {"department": "general", "filename": "codemars_leave_and_bonus_faq.md"}},
+        ]
+
+        ranked_results = prioritize_role_specific_results(results, role="hr")
+
+        self.assertEqual(
+            ranked_results[0]["metadata"]["filename"],
+            "codemars_hr_leave_policy.md",
+        )
 
 
 if __name__ == "__main__":
