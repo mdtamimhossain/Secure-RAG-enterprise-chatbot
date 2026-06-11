@@ -1,7 +1,13 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { FileText, Plus, Search, Send, ShieldCheck } from '@lucide/vue'
-import { createConversation, getChatHistory, getConversations, sendChatMessage } from '../services/api'
+import { FileText, Plus, Search, Send, ShieldCheck, Trash2 } from '@lucide/vue'
+import {
+  createConversation,
+  deleteConversation,
+  getChatHistory,
+  getConversations,
+  sendChatMessage,
+} from '../services/api'
 
 const props = defineProps({
   role: {
@@ -120,6 +126,28 @@ async function selectConversation(selectedConversationId) {
   await loadSavedMessages()
 }
 
+async function removeConversation(selectedConversationId) {
+  try {
+    await deleteConversation({
+      sessionToken: props.sessionToken,
+      conversationId: selectedConversationId,
+    })
+    const wasActiveConversation = conversationId.value === selectedConversationId
+    conversations.value = conversations.value.filter(
+      (conversation) => conversation.id !== selectedConversationId,
+    )
+
+    if (wasActiveConversation) {
+      const nextConversation = conversations.value[0]
+      conversationId.value = nextConversation?.id || null
+      emit('conversation-change', conversationId.value)
+      await loadSavedMessages()
+    }
+  } catch (err) {
+    error.value = err.message
+  }
+}
+
 function recentHistory() {
   return messages.value
     .filter((message) => ['user', 'assistant'].includes(message.sender) && message.text?.trim())
@@ -213,16 +241,28 @@ async function scrollToBottom() {
         New chat
       </button>
       <div v-if="conversations.length" class="conversation-tabs" aria-label="Saved conversations">
-        <button
+        <div
           v-for="(conversation, index) in conversations"
           :key="conversation.id"
           class="conversation-tab"
           :class="{ active: conversation.id === conversationId }"
-          type="button"
-          @click="selectConversation(conversation.id)"
         >
-          {{ conversationLabel(conversation, index) }}
-        </button>
+          <button
+            class="conversation-select"
+            type="button"
+            @click="selectConversation(conversation.id)"
+          >
+            {{ conversationLabel(conversation, index) }}
+          </button>
+          <button
+            class="delete-conversation"
+            type="button"
+            title="Delete chat"
+            @click="removeConversation(conversation.id)"
+          >
+            <Trash2 :size="13" aria-hidden="true" />
+          </button>
+        </div>
       </div>
     </div>
 
@@ -370,7 +410,8 @@ async function scrollToBottom() {
 }
 
 .clear-chat,
-.conversation-tab {
+.conversation-tab,
+.conversation-select {
   border: 1px solid var(--border, #d8dee7);
   border-radius: 999px;
   background: var(--surface, #ffffff);
@@ -391,8 +432,20 @@ async function scrollToBottom() {
 }
 
 .conversation-tab {
-  max-width: 140px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 170px;
   flex: 0 0 auto;
+  padding: 0 5px 0 0;
+}
+
+.conversation-select {
+  min-width: 0;
+  max-width: 125px;
+  border: 0;
+  background: transparent;
+  padding: 7px 4px 7px 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -402,6 +455,26 @@ async function scrollToBottom() {
   border-color: color-mix(in srgb, var(--role-accent, #1f6feb) 42%, var(--border));
   background: color-mix(in srgb, var(--role-accent, #1f6feb) 12%, var(--surface));
   color: var(--heading, #111827);
+}
+
+.delete-conversation {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted, #64748b);
+  cursor: pointer;
+  opacity: 0.72;
+}
+
+.delete-conversation:hover {
+  background: color-mix(in srgb, #ef4444 14%, transparent);
+  color: #ef4444;
+  opacity: 1;
 }
 
 .conversation {

@@ -221,6 +221,34 @@ def get_or_create_latest_conversation(
     return create_conversation(user_id, database_path=database_path)
 
 
+def delete_conversation(
+    user_id: int,
+    conversation_id: int,
+    database_path: str | Path | None = None,
+) -> bool:
+    connection = get_connection(database_path)
+    try:
+        row = connection.execute(
+            "SELECT id FROM conversations WHERE id = ? AND user_id = ?",
+            (conversation_id, user_id),
+        ).fetchone()
+        if not row:
+            return False
+
+        connection.execute(
+            "DELETE FROM chat_messages WHERE user_id = ? AND conversation_id = ?",
+            (user_id, conversation_id),
+        )
+        connection.execute(
+            "DELETE FROM conversations WHERE id = ? AND user_id = ?",
+            (conversation_id, user_id),
+        )
+        connection.commit()
+        return True
+    finally:
+        connection.close()
+
+
 def _conversation_from_row(row: sqlite3.Row) -> StoredConversation:
     return StoredConversation(
         id=row["id"],

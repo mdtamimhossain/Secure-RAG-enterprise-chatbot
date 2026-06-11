@@ -14,7 +14,7 @@ if str(PROJECT_ROOT.parent) not in sys.path:
 
 from fastapi.testclient import TestClient
 
-from backend.main import app, get_rag_service
+from backend.main import app, get_portfolio_rag_service, get_rag_service
 from backend.src.auth import clear_demo_sessions
 from backend.src.monitoring import MonitoringMetrics
 
@@ -22,6 +22,7 @@ from backend.src.monitoring import MonitoringMetrics
 class ApiTests(unittest.TestCase):
     def setUp(self) -> None:
         get_rag_service.cache_clear()
+        get_portfolio_rag_service.cache_clear()
         self.temp_dir = tempfile.TemporaryDirectory()
         self.previous_database_path = os.environ.get("RAG_DATABASE_PATH")
         os.environ["RAG_DATABASE_PATH"] = str(Path(self.temp_dir.name) / "test.sqlite3")
@@ -80,6 +81,28 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(body["blocked_chats"], 1)
         self.assertEqual(body["roles"], {"employee": 3})
         self.assertEqual(body["source_categories"], {"helpdesk": 1})
+
+    def test_portfolio_status_endpoint_returns_index_details(self) -> None:
+        response = self.client.get("/portfolio/status")
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], "ready")
+        self.assertGreaterEqual(body["document_count"], 1)
+        self.assertGreaterEqual(body["chunk_count"], 1)
+        self.assertEqual(body["collection_name"], "portfolio_documents")
+
+    def test_portfolio_chat_endpoint_returns_public_answer(self) -> None:
+        response = self.client.post(
+            "/portfolio/chat",
+            json={"question": "What is Tamim's strongest project?"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertIn("answer", body)
+        self.assertIn("sources", body)
+        self.assertEqual(body["model"], "FakeLLM")
 
     def test_login_returns_demo_session(self) -> None:
         response = self.client.post(
@@ -227,6 +250,47 @@ class ApiTests(unittest.TestCase):
 
         response = self.client.get(
             f"/chat/history?conversation_id={conversation['id']}",
+            headers=second_headers,
+        )
+
+        self.assertEqual(response.status_code, 404)
+
+    def test_can_delete_own_conversation(self) -> None:
+        headers = self._auth_headers(role="employee")
+        conversation = self.client.post(
+            "/conversations",
+            json={"title": "Delete me"},
+            headers=headers,
+        ).json()
+
+        delete_response = self.client.delete(
+            f"/conversations/{conversation['id']}",
+            headers=headers,
+        )
+        history_response = self.client.get(
+            f"/chat/history?conversation_id={conversation['id']}",
+            headers=headers,
+        )
+        list_response = self.client.get("/conversations", headers=headers)
+
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertEqual(delete_response.json(), {"status": "deleted"})
+        self.assertEqual(history_response.status_code, 404)
+        self.assertFalse(
+            any(item["id"] == conversation["id"] for item in list_response.json())
+        )
+
+    def test_cannot_delete_another_users_conversation(self) -> None:
+        first_headers = self._auth_headers(role="employee", name="First User")
+        second_headers = self._auth_headers(role="employee", name="Second User")
+        conversation = self.client.post(
+            "/conversations",
+            json={"title": "Private chat"},
+            headers=first_headers,
+        ).json()
+
+        response = self.client.delete(
+            f"/conversations/{conversation['id']}",
             headers=second_headers,
         )
 

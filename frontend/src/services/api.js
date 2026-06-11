@@ -51,6 +51,22 @@ export async function getConversations({ sessionToken }) {
   return body
 }
 
+export async function deleteConversation({ sessionToken, conversationId }) {
+  const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
+    method: 'DELETE',
+    headers: {
+      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+    },
+  })
+  const body = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(body.detail || 'Unable to delete conversation.')
+  }
+
+  return body
+}
+
 export async function sendChatMessage({
   question,
   role,

@@ -1,15 +1,18 @@
 from __future__ import annotations
 
+import os
 from time import perf_counter
 from functools import lru_cache
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.src.auth import DemoSession, create_demo_session, get_demo_session
 from backend.src.database import (
     clear_conversation_messages,
     create_conversation,
+    delete_conversation,
     get_chat_messages,
     get_conversation,
     get_or_create_latest_conversation,
@@ -18,11 +21,26 @@ from backend.src.database import (
 )
 from backend.src.guardrails import GuardrailResult, check_input_guardrails, check_output_guardrails
 from backend.src.monitoring import MonitoringMetrics, get_monitoring_metrics, log_chat_event, log_guardrail_event
+from backend.src.portfolio_service import PortfolioRAGService, build_portfolio_rag_service
 from backend.src.rag_chain import ChatHistoryMessage
 from backend.src.rag_service import RAGService, build_rag_service, get_index_status
 
 
 app = FastAPI(title="Secure Enterprise RAG Chatbot API")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        origin.strip()
+        for origin in os.getenv(
+            "CORS_ALLOWED_ORIGINS",
+            "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000",
+        ).split(",")
+        if origin.strip()
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ChatRequest(BaseModel):
@@ -76,6 +94,17 @@ class ChatResponse(BaseModel):
     guardrail: dict[str, str] | None = None
 
 
+class PortfolioChatRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+    history: list[ChatHistoryMessage] = Field(default_factory=list)
+
+
+class PortfolioChatResponse(BaseModel):
+    answer: str
+    model: str
+    sources: list[SourceResponse]
+
+
 class StatusResponse(BaseModel):
     status: str
     document_count: int
@@ -119,9 +148,47 @@ def status() -> StatusResponse:
     )
 
 
+@app.get("/portfolio/status", response_model=StatusResponse)
+def portfolio_status() -> StatusResponse:
+    try:
+        service = get_portfolio_rag_service()
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    return StatusResponse(
+        status="ready",
+        document_count=service.document_count,
+        chunk_count=service.chunk_count,
+        collection_name=service.collection_name,
+    )
+
+
 @app.get("/metrics", response_model=MetricsResponse)
 def metrics() -> MonitoringMetrics:
     return get_monitoring_metrics()
+
+
+@app.post("/portfolio/chat", response_model=PortfolioChatResponse)
+def portfolio_chat(request: PortfolioChatRequest) -> PortfolioChatResponse:
+    try:
+        response = get_portfolio_rag_service().rag_chain.answer_question(
+            question=request.question,
+            chat_history=request.history,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    return PortfolioChatResponse(
+        answer=response.answer,
+        model=response.model,
+        sources=[
+            SourceResponse(
+                content=source.get("content", ""),
+                metadata=source.get("metadata", {}),
+            )
+            for source in response.sources
+        ],
+    )
 
 
 @app.post("/login", response_model=LoginResponse)
@@ -166,6 +233,18 @@ def new_conversation(
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
     )
+
+
+@app.delete("/conversations/{conversation_id}")
+def remove_conversation(
+    conversation_id: int,
+    authorization: str | None = Header(default=None),
+) -> dict[str, str]:
+    session = _require_session(authorization)
+    deleted = delete_conversation(session.user_id, conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "deleted"}
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -376,3 +455,8 @@ def _latency_ms(started_at: float) -> float:
 @lru_cache(maxsize=1)
 def get_rag_service() -> RAGService:
     return build_rag_service()
+
+
+@lru_cache(maxsize=1)
+def get_portfolio_rag_service() -> PortfolioRAGService:
+    return build_portfolio_rag_service()

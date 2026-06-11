@@ -13,6 +13,7 @@ SUPPORTED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx"}
 METADATA_SUFFIX = ".metadata.json"
 
 DEFAULT_ROLE_ACCESS = {
+    "portfolio": ["visitor"],
     "general": ["employee", "hr", "finance", "manager", "executive", "admin"],
     "hr": ["hr", "manager", "executive", "admin"],
     "finance": ["finance", "executive", "admin"],

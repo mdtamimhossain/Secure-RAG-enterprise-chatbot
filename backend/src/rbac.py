@@ -2,6 +2,7 @@ from __future__ import annotations
 
 
 ROLE_DEPARTMENT_ACCESS = {
+    "visitor": ["portfolio"],
     "employee": ["general"],
     "hr": ["general", "hr"],
     "finance": ["general", "finance"],
