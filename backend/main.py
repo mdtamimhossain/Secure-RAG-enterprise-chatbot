@@ -33,7 +33,7 @@ app.add_middleware(
         origin.strip()
         for origin in os.getenv(
             "CORS_ALLOWED_ORIGINS",
-            "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000",
+            "http://localhost:5173,http://localhost:5174,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:3000",
         ).split(",")
         if origin.strip()
     ],
@@ -103,6 +103,7 @@ class PortfolioChatResponse(BaseModel):
     answer: str
     model: str
     sources: list[SourceResponse]
+    guardrail: dict[str, str] | None = None
 
 
 class StatusResponse(BaseModel):
@@ -170,6 +171,10 @@ def metrics() -> MonitoringMetrics:
 
 @app.post("/portfolio/chat", response_model=PortfolioChatResponse)
 def portfolio_chat(request: PortfolioChatRequest) -> PortfolioChatResponse:
+    input_guardrail = check_input_guardrails(request.question)
+    if not input_guardrail.allowed:
+        return _portfolio_guardrail_response(request, input_guardrail)
+
     try:
         response = get_portfolio_rag_service().rag_chain.answer_question(
             question=request.question,
@@ -177,6 +182,10 @@ def portfolio_chat(request: PortfolioChatRequest) -> PortfolioChatResponse:
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+    output_guardrail = check_output_guardrails(response.answer)
+    if not output_guardrail.allowed:
+        return _portfolio_guardrail_response(request, output_guardrail)
 
     return PortfolioChatResponse(
         answer=response.answer,
@@ -387,6 +396,50 @@ def _guardrail_response(
         guardrail=chat_response.guardrail,
     )
     return chat_response
+
+
+def _portfolio_guardrail_response(
+    request: PortfolioChatRequest,
+    result: GuardrailResult,
+) -> PortfolioChatResponse:
+    message = _portfolio_guardrail_message(result)
+    log_guardrail_event(
+        question=request.question,
+        role="visitor",
+        reason=result.reason,
+        stage=result.stage,
+        intent=result.intent.value,
+        message=message,
+    )
+
+    return PortfolioChatResponse(
+        answer=message,
+        model=f"Guardrails:{result.reason}",
+        sources=[],
+        guardrail={
+            "reason": result.reason,
+            "stage": result.stage,
+        },
+    )
+
+
+def _portfolio_guardrail_message(result: GuardrailResult) -> str:
+    if result.reason == "out_of_scope":
+        return (
+            "I can help with questions about Tamim's portfolio, projects, skills, "
+            "and public profile links. That request is outside this portfolio assistant's scope."
+        )
+    if result.reason == "prompt_injection":
+        return (
+            "I cannot follow requests that try to bypass the portfolio assistant's "
+            "instructions or reveal hidden system details."
+        )
+    if result.reason == "sensitive_personal_data":
+        return (
+            "I cannot process or reveal private personal data. I can only share "
+            "public portfolio information included in Tamim's portfolio data."
+        )
+    return result.message
 
 
 def _resolve_conversation(session: DemoSession, conversation_id: int | None):

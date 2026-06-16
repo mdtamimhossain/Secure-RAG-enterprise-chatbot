@@ -44,7 +44,7 @@ class PortfolioRAGService:
 def default_portfolio_settings() -> PortfolioRAGSettings:
     backend_dir = Path(__file__).resolve().parents[1]
     return PortfolioRAGSettings(
-        data_dir=backend_dir / "data" / "portfolio",
+        data_dir=backend_dir / "portfolio_data",
         persist_dir=Path(tempfile.gettempdir()) / "portfolio_rag_chroma_api",
     )
 

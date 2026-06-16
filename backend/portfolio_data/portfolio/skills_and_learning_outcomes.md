@@ -6,11 +6,83 @@ Confidentiality: Public
 
 This document summarizes skills and learning outcomes demonstrated through Tamim's public projects and the Secure Enterprise RAG Chatbot project.
 
+## CV-Based Skill Summary
+
+Tamim's CV lists practical skills across programming, data analysis, visualization, machine learning, web development, DevOps, cloud, cybersecurity, and systems.
+
+Programming skills include:
+
+- Python
+- PHP
+- Java
+- JavaScript
+
+Data analysis skills include:
+
+- Python
+- SQL
+- Linux
+- Excel
+- Pandas
+- NumPy
+
+Visualization skills include:
+
+- Matplotlib
+- Altair
+- Power BI
+
+Machine learning skills include:
+
+- Neural networks
+- CNNs
+- RNNs
+- LLMs
+- Deep learning
+- Data analytics
+- LangChain
+- Agentic AI workflow development
+- Prompt engineering
+- Embedding pipelines
+- Retrieval orchestration
+- Vector database usage
+
+Web development skills include:
+
+- PHP Laravel
+- REST APIs
+- Vue.js
+- TailwindCSS
+- jQuery
+- Backend logic
+- UI component development
+
+DevOps and cloud skills include:
+
+- Git
+- Docker
+- AWS
+- CI/CD pipelines
+- Hosting applications on servers
+
+Cybersecurity and systems skills include:
+
+- API penetration testing
+- nmap
+- Burp Suite
+- Metasploit
+- CCNA familiarity
+- System administration familiarity
+
+Tamim's CV also mentions experience with real-world team projects, building predictive models, and integrating analytical results into practical software features.
+
 ## AI Engineering Skills
 
 Tamim has practiced:
 
 - Retrieval Augmented Generation
+- LangChain
+- Agentic AI development
 - Document loading
 - Text chunking
 - Embeddings
