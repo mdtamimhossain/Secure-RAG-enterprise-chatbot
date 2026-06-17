@@ -206,7 +206,10 @@ function normalizeSavedMessages(savedMessages) {
     return []
   }
 
-  return savedMessages
+  return savedMessages.map((message) => ({
+    ...message,
+    createdAt: formatTimestamp(message.createdAt),
+  }))
 }
 
 function labelFor(source) {
@@ -224,6 +227,19 @@ function conversationLabel(conversation, index) {
 
 function timestamp() {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+}
+
+function formatTimestamp(value) {
+  if (!value) {
+    return timestamp()
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return value
+  }
+
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 async function scrollToBottom() {
