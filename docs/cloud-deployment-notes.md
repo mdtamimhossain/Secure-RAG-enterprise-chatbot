@@ -456,7 +456,7 @@ Example:
 ```env
 LLM_PROVIDER=fake
 GROQ_API_KEY=
-GROQ_MODEL=llama-3.1-8b-instant
+GROQ_MODEL=openai/gpt-oss-20b
 EMBEDDING_PROVIDER=hash
 ```
 
@@ -944,7 +944,7 @@ docker run -d \
   -p 8000:8000 \
   -e LLM_PROVIDER=groq \
   -e GROQ_API_KEY="your_groq_key_here" \
-  -e GROQ_MODEL=llama-3.1-8b-instant \
+  -e GROQ_MODEL=openai/gpt-oss-20b \
   -e EMBEDDING_PROVIDER=hash \
   281639842123.dkr.ecr.eu-central-1.amazonaws.com/rag-chatbot-backend:latest
 ```

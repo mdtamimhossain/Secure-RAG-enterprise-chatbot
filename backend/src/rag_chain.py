@@ -54,7 +54,7 @@ class GroqLLM:
     def __init__(
         self,
         api_key: str | None = None,
-        model: str = "llama-3.1-8b-instant",
+        model: str = "openai/gpt-oss-20b",
         api_url: str = "https://api.groq.com/openai/v1/chat/completions",
         timeout_seconds: int = 30,
     ) -> None:
@@ -174,7 +174,7 @@ def create_llm_client(provider: str | None = None) -> LLMClient:
         model = os.getenv("OPENAI_MODEL", "gpt-5.2")
         return OpenAILLM(model=model)
     if provider == "groq":
-        model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+        model = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b")
         return GroqLLM(model=model)
 
     raise ValueError(f"Unsupported LLM provider: {provider}")

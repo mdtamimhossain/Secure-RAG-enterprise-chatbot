@@ -7,7 +7,7 @@ services:
     environment:
       LLM_PROVIDER: ${LLM_PROVIDER:-fake}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
-      GROQ_MODEL: ${GROQ_MODEL:-llama-3.1-8b-instant}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-20b}
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-hash}
       RAG_LOG_DIR: /app/backend/logs
     ports:
