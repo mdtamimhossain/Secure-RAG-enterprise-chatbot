@@ -138,8 +138,8 @@ jobs:
 
             aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
-            docker stop backend rag-chatbot-backend frontend || true
-            docker rm backend rag-chatbot-backend frontend || true
+            docker stop backend rag-chatbot-backend frontend rag-chatbot-frontend chatbot-frontend codemars-rag-frontend || true
+            docker rm backend rag-chatbot-backend frontend rag-chatbot-frontend chatbot-frontend codemars-rag-frontend || true
             docker system prune -af || true
 
             df -h
@@ -165,15 +165,16 @@ jobs:
               "$BACKEND_IMAGE"
 
             docker run -d \
-              --name frontend \
+              --name chatbot-frontend \
               --restart unless-stopped \
               --network rag-network \
-              -p 80:80 \
+              -p 8081:80 \
               "$FRONTEND_IMAGE"
 
             sleep 5
             curl --fail http://localhost:8000/health
-            curl --fail http://localhost/api/health
+            curl --fail http://localhost:8081/
+            curl --fail http://localhost:8081/api/health
 
             docker image prune -f || true
           EOF
